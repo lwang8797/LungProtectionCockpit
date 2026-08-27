@@ -13,8 +13,11 @@ if not exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-echo [3/3] 启动服务（回填最近 24h + API，端口默认 8080）...
+REM 默认端口 8090（8080 常被本机 ApplicationWebServer.exe 占用，会报 WinError 10048）。
+REM 如需改用 8080，请先关闭占用 8080 的程序，或改 COCKPIT_PORT=8080。
+echo [3/3] 启动服务（回填最近 24h + API，端口默认 8090）...
 set PYTHONPATH=.
+set COCKPIT_PORT=8090
 python -m lung_protection_cockpit.main all --hours 24
 
 pause

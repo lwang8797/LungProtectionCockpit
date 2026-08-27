@@ -47,7 +47,7 @@
 >    - Git Bash / WSL / Linux / macOS：`PYTHONPATH=. python -m ...`
 >    - **Windows CMD**：`set PYTHONPATH=. && python -m ...`
 >    - **Windows PowerShell**：`$env:PYTHONPATH="."; python -m ...`
-> 3. 若 8080 端口被占用（报错 `OSError: [WinError 10048]`），改用其他端口，例如 `COCKPIT_PORT=8090`（Git Bash）/ `$env:COCKPIT_PORT="8090"`（PowerShell）。
+> 3. 本机 `8080` 端口常被 `ApplicationWebServer.exe` 占用（报错 `OSError: [WinError 10048]`）。**默认已改用 `8090`**：一键脚本 `启动后端.bat` 已内置 `COCKPIT_PORT=8090`；手动启动时也建议 `COCKPIT_PORT=8090`（Git Bash 写法 `COCKPIT_PORT=8090 python -m ...` / PowerShell `$env:COCKPIT_PORT="8090"; python -m ...`）。若确实要用 8080，请先关闭占用该端口的程序。
 
 **① 首次：建虚拟环境并装依赖（三种终端通用）**
 
@@ -75,12 +75,13 @@ pip install -r lung_protection_cockpit/requirements.txt
 
 > 嫌敲命令麻烦？可直接双击 `outputs/启动后端.bat`（自动建 venv、装依赖、设 PYTHONPATH 并启动）。
 
-环境变量：`COCKPIT_HOST`（默认 0.0.0.0）、`COCKPIT_PORT`（默认 8080）。
-启动后访问：
+环境变量：`COCKPIT_HOST`（默认 0.0.0.0）、`COCKPIT_PORT`（**默认 8090**，因本机 8080 常被 `ApplicationWebServer.exe` 占用）。
 
-- 前端驾驶舱页面：`http://localhost:8080/`
-- 接口文档（Swagger）：`http://localhost:8080/docs`
-- 健康检查：`GET http://localhost:8080/api/health`
+启动后访问（端口以实际为准，默认 8090）：
+
+- 前端驾驶舱页面：`http://localhost:8090/`
+- 接口文档（Swagger）：`http://localhost:8090/docs`
+- 健康检查：`GET http://localhost:8090/api/health`
 
 数据来源：MongoDB `192.168.1.100:27017 / data-services-prod.measure_param`（见 `config.py`，可按需修改）。
 
