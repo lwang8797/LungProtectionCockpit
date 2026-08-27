@@ -1,0 +1,26 @@
+{
+  "device": "ATVIPVTEST1",
+  "window_start": "2026-08-02T22:58:45.906000+00:00",
+  "window_end": "2026-08-03T00:58:45.906000+00:00",
+  "duration_min": 120.0,
+  "sample_interval_s": 4.001,
+  "valid_vent_points": 1185,
+  "dp": {
+    "max": 10.0,
+    "mean": 8.965400843881856,
+    "threshold": 15.0,
+    "over_count": 0,
+    "over_pct": 0.0,
+    "auc": 0.0
+  },
+  "mp": {
+    "max": 5.92704,
+    "mean": 3.6059021434599154,
+    "threshold": 17.0,
+    "over_count": 0,
+    "over_pct": 0.0,
+    "auc": 0.0
+  },
+  "cumulative_energy_j": 204.77864316291723,
+  "risk_level": "L1 正常"
+}

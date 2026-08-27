@@ -1,0 +1,869 @@
+# -*- coding: utf-8 -*-
+"""生成深色主题版本的肺保护驾驶舱原型 HTML（总览页：仪表盘图形化，一图一数一句话）。"""
+HTML_HEAD = '''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>肺保护驾驶舱 · 产品原型（15寸触摸屏 WebUI · 深色版）</title>
+<style>
+'''
+
+CSS = r''':root{
+  --bg-0:#07090D;          /* 应用底色 */
+  --bg-1:#0E1218;          /* 页面背景 */
+  --bg-2:#151A22;          /* 卡片背景 */
+  --bg-3:#1C232E;          /* 悬停 / 次级卡 */
+  --bg-4:#252C38;          /* 输入框、分隔 */
+  --t-1:#F1F4F8;           /* 主文白 */
+  --t-2:#B7C0CC;           /* 副文灰 */
+  --t-3:#7C8694;           /* 弱化提示 */
+  --t-4:#4A5563;           /* 轴线/分割 */
+  --ok:#22C55E;
+  --watch:#EAB308;
+  --warn:#F97316;
+  --dan:#EF4444;
+  --pri:#3B82F6;
+  --pur:#A855F7;
+  --alarm:#DC2626;
+  --line:rgba(255,255,255,.06);
+  --line2:rgba(255,255,255,.12);
+  --shadow:0 2px 6px rgba(0,0,0,.5);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;color:var(--t-1);}
+#stage{position:absolute;left:50%;top:50%;width:1366px;height:768px;transform-origin:center center;background:var(--bg-1);}
+#app{width:1366px;height:768px;display:flex;flex-direction:column;}
+#topbar{height:54px;background:var(--bg-0);border-bottom:1px solid var(--line);color:#fff;display:flex;align-items:center;padding:0 14px;flex-shrink:0;gap:14px;}
+#topbar .logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:bold;}
+#topbar .logo .lg{width:26px;height:26px;background:linear-gradient(135deg,var(--pri),var(--pur));border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;}
+#topbar .logo .sub{color:var(--t-3);font-weight:normal;font-size:11.5px;margin-left:2px;}
+#topbar .alarm{margin-left:8px;flex:1;height:32px;display:flex;align-items:center;gap:10px;background:var(--alarm);color:#fff;font-weight:bold;font-size:14px;padding:0 14px;border-radius:4px;}
+#topbar .alarm .ic{width:22px;height:22px;border-radius:50%;background:#fff;color:var(--alarm);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;}
+#topbar .alarm .grow{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#topbar .alarm .detail-link{color:#fff;font-size:12.5px;font-weight:bold;padding:4px 10px;border-radius:4px;background:rgba(255,255,255,.2);cursor:pointer;flex-shrink:0;}
+#topbar .meta{background:var(--bg-2);border-radius:6px;padding:6px 12px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--t-2);}
+#topbar .meta b{color:var(--t-1);font-size:13.5px;}
+#topbar .meta .sep{width:1px;height:16px;background:var(--line2);}
+#topbar .riskchip{display:flex;align-items:center;gap:7px;background:var(--dan);color:#fff;border-radius:14px;padding:5px 14px;font-weight:bold;font-size:12.5px;}
+#topbar .riskchip .dot{width:8px;height:8px;border-radius:50%;background:#fff;animation:blink 1.2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+#topbar .clock{font-size:12.5px;color:var(--t-2);display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;}
+#topbar .clock .tm{font-size:15px;font-weight:bold;color:var(--t-1);font-variant-numeric:tabular-nums;}
+
+#nav{width:82px;background:var(--bg-0);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:8px;flex-shrink:0;}
+.navitem{width:74px;height:64px;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--t-3);cursor:pointer;margin-bottom:4px;font-size:11px;transition:all .12s;position:relative;}
+.navitem svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.navitem:active{background:var(--bg-3);}
+.navitem.on{background:var(--bg-3);color:var(--t-1);}
+.navitem.on::before{content:"";position:absolute;left:-1px;top:12px;bottom:12px;width:3px;background:var(--pri);border-radius:0 2px 2px 0;}
+.navitem .badge{position:absolute;top:6px;right:8px;background:var(--dan);color:#fff;border-radius:8px;font-size:9.5px;font-weight:bold;padding:1px 5px;min-width:16px;text-align:center;}
+#nav .spacer{flex:1;}
+
+#main{flex:1;overflow:hidden;position:relative;background:var(--bg-1);}
+.page{position:absolute;inset:0;padding:14px 16px;overflow-y:auto;display:none;}
+.page.on{display:block;}
+.card{background:var(--bg-2);border-radius:8px;padding:12px 14px;border:1px solid var(--line);}
+.card h3{font-size:13px;color:var(--t-2);font-weight:bold;display:flex;align-items:center;gap:6px;margin-bottom:9px;}
+.card h3 .hint{font-weight:normal;font-size:11px;color:var(--t-3);}
+
+/* 整体评级横幅 */
+.rating-band{position:relative;border-radius:8px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:18px;overflow:hidden;}
+.rating-band .lv{font-size:34px;font-weight:900;letter-spacing:2px;line-height:1;padding:0 18px;border-right:1px solid rgba(255,255,255,.25);}
+.rating-band .ttl{font-size:20px;font-weight:bold;line-height:1.3;}
+.rating-band .sub{font-size:13px;opacity:.9;margin-top:6px;line-height:1.55;}
+.rating-band .pills{margin-left:auto;display:flex;gap:8px;}
+.rating-band .pills span{background:rgba(255,255,255,.18);border-radius:14px;padding:5px 12px;font-size:12px;font-weight:bold;}
+.rating-band .icon{width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;flex-shrink:0;}
+.rating-band.lv-0{background:linear-gradient(90deg,#16A34A,#15803D);color:#fff;}
+.rating-band.lv-1{background:linear-gradient(90deg,#CA8A04,#A16207);color:#fff;}
+.rating-band.lv-2{background:linear-gradient(90deg,#EA580C,#C2410C);color:#fff;}
+.rating-band.lv-3{background:linear-gradient(90deg,#DC2626,#991B1B);color:#fff;}
+
+/* 风险卡 */
+.risk-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px;}
+.risk-card{background:var(--bg-2);border-radius:10px;border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;}
+.risk-card .head{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);}
+.risk-card .head .lab{font-size:13px;color:var(--t-2);font-weight:bold;}
+.risk-card .head .lab .unit{font-size:11px;color:var(--t-3);font-weight:normal;margin-left:3px;}
+.risk-card .head .badge{font-size:12px;font-weight:bold;padding:5px 12px;border-radius:14px;letter-spacing:1px;}
+.b-ok{background:rgba(34,197,94,.15);color:var(--ok);border:1px solid rgba(34,197,94,.4);}
+.b-watch{background:rgba(234,179,8,.15);color:var(--watch);border:1px solid rgba(234,179,8,.4);}
+.b-warn{background:rgba(249,115,22,.15);color:var(--warn);border:1px solid rgba(249,115,22,.4);}
+.b-dan{background:rgba(239,68,68,.15);color:var(--dan);border:1px solid rgba(239,68,68,.4);}
+.risk-card .gauge-wrap{padding:2px 6px 0;display:flex;justify-content:center;}
+.risk-card .gauge-msg{padding:6px 14px 12px;font-size:15px;font-weight:bold;text-align:center;letter-spacing:.5px;}
+.risk-card.lv-0{border-top:3px solid var(--ok);}
+.risk-card.lv-1{border-top:3px solid var(--watch);}
+.risk-card.lv-2{border-top:3px solid var(--warn);}
+.risk-card.lv-3{border-top:3px solid var(--dan);}
+
+/* 时间带 */
+.band-card{margin-bottom:14px;}
+.legend{display:flex;gap:14px;align-items:center;font-size:11.5px;color:var(--t-3);flex-wrap:wrap;margin-left:14px;}
+.legend i{display:inline-block;width:14px;height:8px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+
+/* 双列 */
+.dual-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;}
+.quadcard{border-radius:8px;padding:9px 12px;font-size:12px;line-height:1.55;margin-bottom:8px;border-left:4px solid var(--line);background:var(--bg-1);}
+.quadcard b{font-size:12.5px;display:block;margin-bottom:2px;color:var(--t-1);}
+.param-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.pcell{background:var(--bg-1);border-radius:6px;padding:8px 12px;border:1px solid var(--line);}
+.pcell .k{font-size:11px;color:var(--t-3);}
+.pcell .v{font-size:17px;font-weight:700;color:var(--t-1);}
+.pcell .v small{font-size:10.5px;color:var(--t-3);font-weight:normal;}
+.note{font-size:11.5px;color:var(--t-3);line-height:1.65;background:var(--bg-1);border-radius:6px;padding:8px 12px;border:1px dashed var(--line2);}
+.note b{color:var(--t-1);}
+.hintlink{color:var(--pri);cursor:pointer;font-weight:bold;}
+
+/* 趋势页 */
+.trend-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+.trend-head .title{font-size:16px;font-weight:800;color:var(--t-1);}
+.trend-head .sub{font-size:11.5px;color:var(--t-3);}
+.trend-layout{display:grid;grid-template-columns:1fr 330px;gap:14px;}
+.side-list{max-height:240px;overflow-y:auto;}
+.evli{display:flex;gap:9px;padding:8px;border-bottom:1px dashed var(--line);font-size:12px;align-items:center;color:var(--t-2);}
+.evli:last-child{border-bottom:none;}
+.evli b{color:var(--t-1);}
+.evli .tm{color:var(--t-3);font-size:11px;min-width:118px;}
+.evli .bar{width:4px;height:26px;border-radius:2px;flex-shrink:0;}
+
+/* 统计 */
+.stat4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.statbox{background:var(--bg-2);border-radius:8px;padding:10px 12px;border:1px solid var(--line);}
+.statbox .k{font-size:11.5px;color:var(--t-3);margin-bottom:3px;}
+.statbox .v{font-size:21px;font-weight:800;color:var(--t-1);}
+.statbox .v small{font-size:11px;font-weight:normal;color:var(--t-3);}
+
+/* 按钮 / 分段 */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line2);background:var(--bg-3);color:var(--t-1);border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;min-height:38px;min-width:56px;transition:all .12s;}
+.btn:active{transform:scale(.96);}
+.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff;}
+.btn.ghost-warn{border-color:var(--warn);color:var(--warn);background:rgba(249,115,22,.1);}
+.seg{display:inline-flex;background:var(--bg-1);border-radius:7px;padding:3px;border:1px solid var(--line);}
+.seg .btn{border:none;background:transparent;border-radius:5px;padding:6px 16px;min-height:32px;color:var(--t-2);}
+.seg .btn.on{background:var(--bg-3);color:var(--t-1);font-weight:bold;}
+.seg .btn:active{transform:none;}
+
+/* 提示 */
+.tooltip{position:absolute;pointer-events:none;background:rgba(0,0,0,.92);color:#fff;font-size:12px;border-radius:6px;padding:7px 10px;line-height:1.5;display:none;z-index:30;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.5);border:1px solid var(--line2);}
+
+/* 预警 */
+.al-item{display:flex;align-items:center;gap:14px;background:var(--bg-2);border-radius:8px;padding:12px 16px;margin-bottom:10px;border-left:5px solid var(--line);border:1px solid var(--line);}
+.al-item .lv{font-size:11px;font-weight:800;padding:4px 12px;border-radius:10px;min-width:60px;text-align:center;color:#fff;}
+.al-item .lv.l0{background:var(--ok);}
+.al-item .lv.l1{background:var(--watch);color:#000;}
+.al-item .lv.l2{background:var(--warn);}
+.al-item .lv.l3{background:var(--dan);}
+.al-item .msg{font-size:13.5px;font-weight:bold;color:var(--t-1);}
+.al-item .meta{font-size:11.5px;color:var(--t-3);margin-top:2px;line-height:1.55;}
+.al-item .st{margin-left:auto;font-size:12px;color:var(--t-2);display:flex;align-items:center;gap:10px;}
+
+/* 设置 */
+.set-row{display:flex;align-items:center;gap:16px;padding:13px 4px;border-bottom:1px dashed var(--line);}
+.set-row:last-child{border-bottom:none;}
+.set-row .lab{width:240px;font-size:13.5px;font-weight:bold;color:var(--t-1);}
+.set-row .lab small{display:block;font-weight:normal;color:var(--t-3);font-size:11px;margin-top:2px;line-height:1.5;}
+input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transparent;}
+.set-val{width:120px;font-size:20px;font-weight:800;text-align:center;background:var(--bg-1);border-radius:6px;padding:7px 0;color:var(--pri);border:1px solid var(--line);}
+.tbl{width:100%;font-size:12px;border-collapse:collapse;}
+.tbl th{text-align:left;color:var(--t-3);font-weight:normal;padding:6px 4px;border-bottom:1px solid var(--line2);font-size:11.5px;}
+.tbl td{padding:7px 4px;border-bottom:1px dashed var(--line);color:var(--t-2);}
+.tbl td b{color:var(--t-1);}
+
+#modal{position:absolute;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100;}
+#modal.on{display:flex;}
+#modal .box{background:var(--bg-2);border-radius:12px;width:480px;padding:22px 26px;box-shadow:0 10px 40px rgba(0,0,0,.7);border:1px solid var(--line2);}
+#modal h4{font-size:17px;margin-bottom:12px;color:var(--t-1);}
+#modal p{font-size:13px;color:var(--t-2);line-height:1.75;margin-bottom:18px;}
+#modal p b{color:var(--t-1);}
+#modal .btns{display:flex;gap:10px;justify-content:flex-end;}
+#toast{position:absolute;left:50%;bottom:62px;transform:translateX(-50%);background:rgba(0,0,0,.95);color:#fff;font-size:13px;border-radius:24px;padding:10px 22px;display:none;z-index:120;border:1px solid var(--line2);}
+
+#statusbar{height:30px;background:var(--bg-0);border-top:1px solid var(--line);display:flex;align-items:center;padding:0 16px;font-size:11.5px;color:var(--t-3);gap:20px;flex-shrink:0;}
+#statusbar .ok-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:5px;}
+#statusbar .grow{flex:1;}
+
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:var(--bg-4);border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:var(--t-4);}
+::-webkit-scrollbar-track{background:transparent;}
+'''
+
+# ============ 主体 HTML ============
+BODY = r'''<body>
+<div id="stage">
+<div id="app">
+
+  <!-- 顶栏：红底报警条幅 + 模式/通气时长（按统计.png） -->
+  <div id="topbar">
+    <div class="logo"><div class="lg">舱</div><span>肺保护驾驶舱<span class="sub">Lung Cockpit · 15寸触摸 WebUI</span></span></div>
+    <div class="alarm">
+      <div class="ic">!</div>
+      <div class="grow">MP 越限 43 min · 18.9 ≥ 17.0 J/min</div>
+      <div class="detail-link" onclick="gotoPage('al')">详情 ›</div>
+    </div>
+    <div class="meta"><b>VC-SIMV</b><div class="sep"></div><span>07床 · 张××</span><div class="sep"></div><span>通气 <b id="ventdur">26h 35m</b></span></div>
+    <div class="riskchip"><span class="dot"></span><span>累积偏高 · 关注</span></div>
+    <div class="clock"><span class="tm" id="clk">14:05:00</span><span>2026-08-26</span></div>
+  </div>
+
+  <div style="display:flex;flex:1;min-height:0;">
+    <!-- 导航 -->
+    <div id="nav">
+      <div class="navitem on" data-page="ov"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg><span>总览</span></div>
+      <div class="navitem" data-page="dp"><svg viewBox="0 0 24 24"><polyline points="3 17 9 10 13 14 21 5"/><polyline points="15 5 21 5 21 11"/></svg><span>ΔP</span></div>
+      <div class="navitem" data-page="mp"><svg viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 9 22 20 9 13 9"/></svg><span>MP</span></div>
+      <div class="navitem" data-page="rm"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="2"/><circle cx="12" cy="11" r="2"/><circle cx="18" cy="6" r="2"/><line x1="4" y1="21" x2="20" y2="21"/><line x1="4" y1="21" x2="4" y2="3"/></svg><span>风险图</span></div>
+      <div class="navitem" data-page="al"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>预警</span><span class="badge" id="alBadge">2</span></div>
+      <div class="navitem" data-page="st"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6M4.22 4.22l4.24 4.24m7.08 7.08l4.24 4.24M1 12h6m10 0h6M4.22 19.78l4.24-4.24m7.08-7.08l4.24-4.24"/></svg><span>设置</span></div>
+      <div class="spacer"></div>
+    </div>
+
+    <div id="main">
+
+      <!-- ========== 页1 总览（风险结论先行） ========== -->
+      <div class="page on" id="pg-ov">
+        <div class="rating-band lv-2">
+          <div class="icon">!</div>
+          <div class="lv">L2</div>
+          <div>
+            <div class="ttl">肺机械暴露累积偏高，正在恶化</div>
+            <div class="sub">MP 越限 + ΔP 逼近阈值 · 建议 1h 内评估 VT / RR / PEEP</div>
+          </div>
+          <div class="pills">
+            <span>越限 <b>2</b></span>
+            <span>复评 <b>1</b></span>
+            <span>安全 <b>1</b></span>
+          </div>
+        </div>
+
+        <div class="risk-grid">
+          <!-- ΔP 仪表盘卡：一图 + 一数 + 一句话 -->
+          <div class="risk-card lv-1">
+            <div class="head">
+              <div class="lab">气道驱动压 ΔP<span class="unit">Pplat − PEEP</span></div>
+              <span class="badge b-watch" id="dpCardBadge">关 注</span>
+            </div>
+            <div class="gauge-wrap"><svg id="dpGauge" width="100%" height="170"></svg></div>
+            <div class="gauge-msg" id="dpGaugeMsg" style="color:var(--watch);">接近阈值 · 缓慢上行</div>
+          </div>
+
+          <!-- MP 仪表盘卡 -->
+          <div class="risk-card lv-2">
+            <div class="head">
+              <div class="lab">气道机械功率 MP<span class="unit">Gattinoni 公式</span></div>
+              <span class="badge b-warn" id="mpCardBadge">偏 高</span>
+            </div>
+            <div class="gauge-wrap"><svg id="mpGauge" width="100%" height="170"></svg></div>
+            <div class="gauge-msg" id="mpGaugeMsg" style="color:var(--warn);">已越限 43 min · 能量增长快</div>
+          </div>
+
+          <!-- 综合卡：二维风险图即主视觉 -->
+          <div class="risk-card lv-2" onclick="gotoPage('rm')" style="cursor:pointer;">
+            <div class="head">
+              <div class="lab">能量–应力风险图<span class="unit">ΔP × MP</span></div>
+              <span class="badge b-warn">偏 高</span>
+            </div>
+            <div class="gauge-wrap" style="padding:2px 4px 0;"><svg id="rmMini" width="100%" height="170"></svg></div>
+            <div class="gauge-msg" style="color:var(--warn);">左上象限 · MP 主导 ›</div>
+          </div>
+        </div>
+
+        <div class="card band-card">
+          <h3>24h 风险分级时间带
+            <span class="legend">
+              <span><i style="background:var(--ok)"></i>低风险</span><span><i style="background:var(--watch)"></i>关注</span><span><i style="background:var(--warn)"></i>累积偏高</span><span><i style="background:var(--dan)"></i>高风险</span><span><i style="background:var(--t-4)"></i>无数据</span>
+            </span>
+            <span class="hint" style="margin-left:auto;">分级依据：实时值 + 累积暴露指标组合判定（详见设置）</span>
+          </h3>
+          <svg id="riskBand" width="100%" height="60"></svg>
+        </div>
+
+        <div class="card">
+          <h3>通气参数快照 <span class="hint">来源：呼吸机 MongoDB</span>
+            <span class="hintlink" style="margin-left:auto;" onclick="gotoPage('st')">适用范围与局限 ›</span></h3>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;">
+            <div class="pcell"><div class="k">模式 / VT</div><div class="v">VC-SIMV <small>420 mL</small></div></div>
+            <div class="pcell"><div class="k">RR / PEEP</div><div class="v">22 <small>/min</small>　10 <small>cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">PIP / Pplat</div><div class="v">28.4 <small>cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">FiO₂</div><div class="v">50<small>%</small></div></div>
+          </div>
+          <div class="note">⚠ <b>气道版本局限</b>：气道 ΔP / MP 包含胸壁因素，肥胖、腹高压、胸壁僵硬患者可能<b>高估或低估</b>真实肺应力与能量负荷。</div>
+        </div>
+      </div>
+
+      <!-- ========== 页2 ΔP趋势 ========== -->
+      <div class="page" id="pg-dp">
+        <div class="trend-head">
+          <span class="title">ΔP 暴露趋势 · 气道驱动压</span>
+          <span class="sub">Pplat − PEEP｜阈值线上方自动高亮｜CUSUM 变化点标记</span>
+          <div class="seg" id="dpWin" style="margin-left:auto;">
+            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button>
+          </div>
+          <button class="btn" onclick="toast('演示原型：后端（Python + MongoDB）就绪后将生成 1 分钟粒度 CSV 导出')">导出 CSV</button>
+        </div>
+        <div class="stat4" id="dpStats"></div>
+        <div class="trend-layout">
+          <div class="card chart-wrap">
+            <h3>ΔP 分钟均值趋势（cmH₂O）<span class="hint">灰区 = 无数据（不插值）</span></h3>
+            <svg id="dpChart" width="100%" height="316"></svg>
+            <div class="tooltip" id="dpTip"></div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:12px;">
+              <h3>超阈值时段（当前窗口）</h3>
+              <div class="side-list" id="dpSegs"></div>
+            </div>
+            <div class="card">
+              <h3>变化点提示（CUSUM）</h3>
+              <div id="dpCusum" style="font-size:12px;color:var(--t-2);line-height:1.7;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 页3 MP趋势 ========== -->
+      <div class="page" id="pg-mp">
+        <div class="trend-head">
+          <span class="title">MP 暴露趋势 · 气道机械功率</span>
+          <span class="sub">MP = 0.098×RR×VT×(PIP−0.5ΔP)（VCV）｜灰区 = 暂停评估（自主呼吸较强）</span>
+          <div class="seg" id="mpWin" style="margin-left:auto;">
+            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button>
+          </div>
+          <button class="btn" onclick="toast('演示原型：后端（Python + MongoDB）就绪后将生成 1 分钟粒度 CSV 导出')">导出 CSV</button>
+        </div>
+        <div class="stat4" id="mpStats"></div>
+        <div class="trend-layout">
+          <div class="card chart-wrap">
+            <h3>MP 分钟均值趋势（J/min）</h3>
+            <svg id="mpChart" width="100%" height="196"></svg>
+            <div class="tooltip" id="mpTip"></div>
+            <h3 style="margin-top:10px;">累积机械能曲线（kJ，全程累计）</h3>
+            <svg id="mpEnergy" width="100%" height="120"></svg>
+            <div class="tooltip" id="meTip"></div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:12px;">
+              <h3>超阈值时段（当前窗口）</h3>
+              <div class="side-list" id="mpSegs"></div>
+            </div>
+            <div class="card">
+              <h3>解读提示</h3>
+              <div style="font-size:12px;color:var(--t-2);line-height:1.75;">
+                · 单参数正常≠整体安全：本患者 VT、RR 均在常规范围，但总能量已越限，属<b style="color:var(--t-1)">"单参数正常、总能量过高"的隐匿风险</b>。<br>
+                · 均值趋势比极值更具预后价值（Wu 2025, n=11,110），本图以分钟均值呈现。<br>
+                · 强自主呼吸时段自动暂停 MP 计算，防止平台压不可靠导致的误判。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 页4 二维风险图 ========== -->
+      <div class="page" id="pg-rm">
+        <div class="trend-head">
+          <span class="title">能量–应力二维风险图</span>
+          <span class="sub">横轴 ΔP（0–25 cmH₂O）· 纵轴 MP（0–35 J/min）· 轨迹 = 近1h，颜色由浅到深为时间演进</span>
+        </div>
+        <div class="trend-layout" style="grid-template-columns:1fr 360px;">
+          <div class="card chart-wrap">
+            <svg id="rmBig" width="100%" height="520"></svg>
+            <div class="tooltip" id="rmTip"></div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:10px;">
+              <h3>当前位置读数</h3>
+              <div style="display:flex;gap:26px;margin:4px 0 10px;">
+                <div><div style="font-size:11px;color:var(--t-3);">ΔP</div><div style="font-size:26px;font-weight:800;color:var(--watch);">14.6<span style="font-size:12px;color:var(--t-3);"> cmH₂O</span></div></div>
+                <div><div style="font-size:11px;color:var(--t-3);">MP</div><div style="font-size:26px;font-weight:800;color:var(--warn);">18.9<span style="font-size:12px;color:var(--t-3);"> J/min</span></div></div>
+                <div><div style="font-size:11px;color:var(--t-3);">所在象限</div><div style="font-size:26px;font-weight:800;color:var(--warn);">左上</div></div>
+              </div>
+              <div class="note">轨迹方向提示：近 40 min 患者由<b>安全区</b>向<b>低应力·高能量区</b>移动，MP 上升主要由呼吸频率贡献，建议评估 RR 与吸气时间设置。</div>
+            </div>
+            <div class="card">
+              <h3>象限解读</h3>
+              <div class="quadcard" style="border-left-color:var(--ok);"><b style="color:var(--ok);">左下 · 低应力低能量（安全区）</b>肺保护达标，维持当前策略并持续监测累积暴露。</div>
+              <div class="quadcard" style="border-left-color:var(--watch);"><b style="color:var(--watch);">右下 · 高应力低能量</b>驱动压偏高而总能量尚可：警惕 VT/PEEP 失衡，复核平台压与复张状态。</div>
+              <div class="quadcard" style="border-left-color:var(--warn);"><b style="color:var(--warn);">左上 · 低应力高能量</b>总能量越限但应力尚可：多为高 RR/高 PEEP 贡献，评估通气频率与 PEEP 水平。</div>
+              <div class="quadcard" style="border-left-color:var(--dan);"><b style="color:var(--dan);">右上 · 高应力高能量（最高风险）</b>应力与能量负荷双高，VILI 风险最高，建议尽快下调驱动压与通气强度。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 页5 预警中心 ========== -->
+      <div class="page" id="pg-al">
+        <div class="trend-head">
+          <span class="title">预警中心</span>
+          <span class="sub">全部提示均为风险提示与决策支持，不构成诊断结论</span>
+          <div class="seg" id="alFilter" style="margin-left:auto;">
+            <button class="btn on" data-f="all">全部</button><button class="btn" data-f="act">活动中</button><button class="btn" data-f="done">已恢复</button>
+          </div>
+        </div>
+        <div id="alList"></div>
+      </div>
+
+      <!-- ========== 页6 设置 ========== -->
+      <div class="page" id="pg-st">
+        <div class="trend-head"><span class="title">设置</span><span class="sub">阈值修改需医师权限 + 二次确认，全部变更自动写入审计日志</span></div>
+        <div class="trend-layout" style="grid-template-columns:1fr 360px;">
+          <div>
+            <div class="card" style="margin-bottom:12px;">
+              <h3>阈值配置（默认值依据循证证据）</h3>
+              <div class="set-row">
+                <div class="lab">ΔP 安全阈值<small>默认 15 cmH₂O · Amato 2015 NEJM (n=3,562)；范围 10–20</small></div>
+                <input type="range" id="sldDp" min="10" max="20" step="0.5" value="15">
+                <div class="set-val" id="sldDpV">15.0</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">MP 安全阈值<small>默认 17 J/min · Chest 2025 (n=21,714)；范围 10–25</small></div>
+                <input type="range" id="sldMp" min="10" max="25" step="0.5" value="17">
+                <div class="set-val" id="sldMpV">17.0</div>
+              </div>
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+                <button class="btn" onclick="resetTh()">恢复默认</button>
+                <button class="btn pri" onclick="askSaveTh()">保存阈值</button>
+              </div>
+            </div>
+            <div class="card">
+              <h3>审计日志（最近变更）</h3>
+              <table class="tbl"><thead><tr><th>时间</th><th>操作人</th><th>项目</th><th>原值</th><th>新值</th><th>依据/备注</th></tr></thead>
+                <tbody id="auditBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:12px;">
+              <h3>循证依据（帮助）</h3>
+              <div style="font-size:12px;color:var(--t-2);line-height:1.8;">
+                <b style="color:var(--t-1)">ΔP：</b>Amato 2015 NEJM：ΔP 每+1SD 死亡 RR 1.41；Tan 2024：每+1h ΔP≥15，ICU 死亡 HR 1.002（首次量化暴露时间的边际风险）；McGillen 2025：ΔP≥15 组死亡率 32% vs ≤15 组 20%。<br>
+                <b style="color:var(--t-1)">MP：</b>Urbankowski 2025 系统评价（46 项研究 / 314,823 例）：87% 研究证实高 MP 与不良结局相关，阈值集中在 14–18 J/min；Chest 2025：MP&gt;17 J/min OR 1.58；Chi 2021：24h MP 变化率更具预后价值。
+              </div>
+            </div>
+            <div class="card">
+              <h3>适用范围与局限性</h3>
+              <div style="font-size:12px;color:var(--t-2);line-height:1.8;">
+                · 本模块为<b style="color:var(--t-1)">气道压版本</b>，适用于普通机型（无食管压/SpO₂/CO₂ 硬件）。<br>
+                · 肥胖、腹高压、胸壁僵硬患者：气道 ΔP/MP 可能高估或低估真实肺应力/能量负荷，建议参考高端机型跨肺版本。<br>
+                · 强自主呼吸时段：平台压不可靠，ΔP 标注"不可靠"、MP 自动暂停计算。<br>
+                · 阈值为群体循证默认值，个体化调整请结合患者情况；请勿过度依赖单一阈值。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 底栏 -->
+  <div id="statusbar">
+    <span><span class="ok-dot"></span>数据源：呼吸机 MongoDB · metrics_1min（1min 粒度）</span>
+    <span>数据延迟 &lt; 1 s（WebSocket）</span>
+    <span>计算引擎：Python（规划，本期为模拟数据驱动）</span>
+    <span class="grow"></span>
+    <span>肺保护驾驶舱 V1.2 · 15寸触摸 WebUI · 1366×768</span>
+  </div>
+
+  <div id="modal"><div class="box">
+    <h4>确认修改阈值？</h4>
+    <p id="modalTxt"></p>
+    <div class="btns"><button class="btn" onclick="closeModal()">取消</button><button class="btn pri" id="modalOk">确认修改</button></div>
+  </div></div>
+  <div id="toast"></div>
+
+</div>
+</div>
+'''
+
+JS = r'''<script>
+function fitStage(){
+  var s = Math.min(window.innerWidth/1366, window.innerHeight/768);
+  var el = document.getElementById('stage');
+  el.style.transform = 'translate(-50%,-50%) scale('+s+')';
+}
+window.addEventListener('resize', fitStage); fitStage();
+
+var seed = 20260826;
+function mulberry(){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0; var t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+var rng = mulberry();
+function noise(a){ return (rng()*2-1)*a; }
+
+var N = 1440;
+var nowMin = 14*60+5;
+var data = [];
+var cumE = 0;
+for(var i=0;i<N;i++){
+  var abs = (nowMin - (N-1-i) + 1440) % 1440;
+  var hh = Math.floor(abs/60), mm = abs%60;
+  var dp = 12.4 + 1.1*Math.sin(i/95) + 0.5*Math.sin(i/31+2) + noise(0.35);
+  if(i>=1128 && i<=1280){ var k=1-Math.abs((i-1204)/76); dp += 4.6*Math.max(0.35,k); }
+  if(i>=1385){ dp += (i-1385)*0.022; }
+  var mp = 8.6 + 0.62*dp + 1.3*Math.sin(i/70+1) + noise(0.4);
+  var dpValid = true, mpValid = true, dpSt='VALID', mpSt='VALID';
+  if(i>=900 && i<=935){ dpValid=false; mpValid=false; dpSt='INVALID'; mpSt='INVALID'; }
+  if(i>=1310 && i<=1355){ mpValid=false; mpSt='MP_SUSPENDED'; }
+  if(i>=1140 && i<=1152){ dpSt='UNRELIABLE_DP'; }
+  if(mpValid) cumE += mp;
+  data.push({i:i, t:('0'+hh).slice(-2)+':'+('0'+mm).slice(-2), dp:dp, mp:mp, dpValid:dpValid, mpValid:mpValid, dpSt:dpSt, mpSt:mpSt, cum: cumE/1000});
+}
+var changePts = [{i:1128, txt:'ΔP 均值 12.5→17.2 cmH₂O，检测到上行变化点（09:12）'},{i:1280, txt:'ΔP 均值回落 17.2→12.6 cmH₂O（11:40），风险拐点解除'},{i:1395, txt:'ΔP 开始缓慢上行趋势（13:30），建议关注'}];
+
+var TH = { dp:15.0, mp:17.0 };
+
+function stats(arr, key, validKey, T){
+  var auc=0, ta=0, validN=0, sum=0, max=-1e9;
+  arr.forEach(function(d){ if(!d[validKey]) return; validN++; var v=d[key]; sum+=v; if(v>max)max=v; if(v>T){ auc+=(v-T); ta+=1; } });
+  return { auc: auc/60, ta: ta, ratio: validN? ta/validN : 0, mean: validN? sum/validN : 0, max: max };
+}
+function fmtDur(min){ var h=Math.floor(min/60), m=Math.round(min%60); return (h?h+'h ':'')+(m||!h? m+'m':''); }
+function riskOf(dp, mp){
+  if((dp>=20||mp>=25)) return 3;
+  if(dp>=TH.dp||mp>=TH.mp) return 2;
+  if(dp>=TH.dp-2||mp>=TH.mp-2) return 1;
+  return 0;
+}
+var RISK_C=['#22C55E','#EAB308','#F97316','#EF4444'];
+
+var SVGNS='http://www.w3.org/2000/svg';
+function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+function txt(x,y,s,attrs){ var e=el('text',Object.assign({x:x,y:y},attrs||{})); e.textContent=s; return e; }
+
+function drawTrend(svgId, tipId, win, key, validKey, T, yMin, yMax, unit, color, showCp){
+  var svg=document.getElementById(svgId); svg.innerHTML='';
+  var W=svg.clientWidth||860, H=+svg.getAttribute('height');
+  var L=46,R=10,Tp=8,B=40, pw=W-L-R, ph=H-Tp-B;
+  var arr=data.slice(N-win);
+  function X(idx){ return L+idx/(win-1)*pw; }
+  function Y(v){ return Tp+(yMax-Math.min(Math.max(v,yMin),yMax))/(yMax-yMin)*ph; }
+  var yT=Y(T);
+  for(var v=yMin; v<=yMax; v+=(yMax-yMin)/4){
+    var gy=Y(v);
+    svg.appendChild(el('line',{x1:L,y1:gy,x2:W-R,y2:gy,stroke:'rgba(255,255,255,.05)','stroke-width':1}));
+    svg.appendChild(txt(L-6,gy+4,v.toFixed(0),{'font-size':10,fill:'#7C8694','text-anchor':'end'}));
+  }
+  var step = win===1440?180: win===360?60:10;
+  for(var i=0;i<win;i+=step){
+    var d=arr[i]; if(!d) continue;
+    svg.appendChild(txt(X(i),H-24,d.t,{'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
+    svg.appendChild(el('line',{x1:X(i),y1:Tp+ph,x2:X(i),y2:Tp+ph+4,stroke:'rgba(255,255,255,.12)'}));
+  }
+  svg.appendChild(el('line',{x1:L,y1:yT,x2:W-R,y2:yT,stroke:'#EF4444','stroke-width':1.6,'stroke-dasharray':'7 5'}));
+  svg.appendChild(txt(W-R,yT-6,'阈值 '+T.toFixed(1)+' '+unit,{'font-size':10.5,fill:'#EF4444','text-anchor':'end','font-weight':'bold'}));
+  var i2=0;
+  while(i2<win){
+    var d=arr[i2];
+    if(d && !d[validKey]){
+      var j=i2; while(j<win && arr[j] && !arr[j][validKey]) j++;
+      svg.appendChild(el('rect',{x:X(i2),y:Tp,width:X(j-1)-X(i2)+ (j<win? 3:0),height:ph,fill:'rgba(255,255,255,.04)','stroke':'rgba(255,255,255,.1)','stroke-dasharray':'3 3'}));
+      var mid=(X(i2)+X(j-1))/2;
+      var lbl = d.mpSt==='MP_SUSPENDED' ? '暂停评估' : '无数据';
+      if(X(j-1)-X(i2)>26) svg.appendChild(txt(mid,Tp+ph/2,lbl,{'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
+      i2=j;
+    } else i2++;
+  }
+  var segs=[], cur=[];
+  arr.forEach(function(d,idx){ if(d[validKey]) cur.push([idx,d]); else { if(cur.length)segs.push(cur); cur=[]; } });
+  if(cur.length) segs.push(cur);
+  segs.forEach(function(sg){
+    var pts = sg.map(function(p){ return X(p[0]).toFixed(1)+','+Y(p[1][key]).toFixed(1); }).join(' ');
+    svg.appendChild(el('polyline',{points:pts,fill:'none',stroke:color,'stroke-width':2,'stroke-linejoin':'round'}));
+    for(var q=0;q<sg.length-1;q++){
+      var a=sg[q], b=sg[q+1];
+      if(a[1][key]>T && b[1][key]>T){
+        svg.appendChild(el('polygon',{points:X(a[0])+','+yT+' '+X(a[0])+','+Y(a[1][key])+' '+X(b[0])+','+Y(b[1][key])+' '+X(b[0])+','+yT, fill:'#EF4444','opacity':.22}));
+      }
+    }
+  });
+  if(showCp){ changePts.forEach(function(cp){ if(cp.i > N-win){
+    var li=N-1-cp.i, x=X(li);
+    svg.appendChild(el('line',{x1:x,y1:Tp,x2:x,y2:Tp+ph,stroke:'#3B82F6','stroke-width':1.4,'stroke-dasharray':'3 4'}));
+    svg.appendChild(el('circle',{cx:x,cy:Y(data[cp.i][key]),r:5,fill:'#0E1218',stroke:'#3B82F6','stroke-width':2.4}));
+    svg.appendChild(el('path',{d:'M'+(x-5)+' '+(Y(data[cp.i][key])-11)+'L'+(x+5)+' '+(Y(data[cp.i][key])-11)+'L'+x+' '+(Y(data[cp.i][key])-3)+'Z',fill:'#3B82F6'}));
+  }});}
+  svg.appendChild(txt(L+2,Tp+11,unit,{'font-size':10,fill:'#7C8694'}));
+
+  var tip=document.getElementById(tipId);
+  svg.onmousemove=function(ev){
+    var r=svg.getBoundingClientRect();
+    var mx=(ev.clientX-r.left)*(W/r.width);
+    var idx=Math.round((mx-L)/pw*(win-1)); idx=Math.max(0,Math.min(win-1,idx));
+    var d=arr[idx]; if(!d) return;
+    tip.style.display='block';
+    tip.innerHTML='<b>'+d.t+'</b>　'+key.toUpperCase()+'：'+(d[validKey]? d[key].toFixed(1):'—')+' '+unit+(d.mpSt==='MP_SUSPENDED'?'（暂停评估）':(!d[validKey]?'（无数据）':''))+(d.dpSt==='UNRELIABLE_DP'?'（平台压不可靠）':'');
+    tip.style.left=Math.min((X(idx)/W)*100,72)+'%';
+    tip.style.top='6px';
+  };
+  svg.onmouseleave=function(){ tip.style.display='none'; };
+}
+
+function drawSpark(svgId,key,color,T){
+  var svg=document.getElementById(svgId); svg.innerHTML='';
+  var W=svg.clientWidth||300,H=42;
+  var arr=data.slice(N-360);
+  var lo=Math.min.apply(null,arr.map(function(d){return d[key];}))-0.5, hi=Math.max.apply(null,arr.map(function(d){return d[key];}))+0.5;
+  var pts=arr.map(function(d,idx){ return (idx/(arr.length-1)*W).toFixed(1)+','+(H-4-(d[key]-lo)/(hi-lo)*(H-10)).toFixed(1); }).join(' ');
+  svg.appendChild(el('polyline',{points:pts,fill:'none',stroke:color,'stroke-width':1.6}));
+  if(T>lo&&T<hi){ var ty=H-4-(T-lo)/(hi-lo)*(H-10); svg.appendChild(el('line',{x1:0,y1:ty,x2:W,y2:ty,stroke:'#EF4444','stroke-dasharray':'4 4','stroke-width':1})); }
+  svg.appendChild(txt(2,10,'近6h',{'font-size':9,fill:'#7C8694'}));
+}
+
+/* ================= 半圆仪表盘（总览页 ΔP / MP 卡） ================= */
+function gaugeLevel(v, th, hi){
+  if(v>=hi-3) return 3;
+  if(v>=th) return 2;
+  if(v>=th-2) return 1;
+  return 0;
+}
+function drawGauge(svgId, val, th, lo, hi, unit){
+  var svg=document.getElementById(svgId); if(!svg) return; svg.innerHTML='';
+  var W=svg.clientWidth||300, H=+svg.getAttribute('height');
+  var cx=W/2, cy=H-38, r=Math.min(W/2-20, cy-12), sw=Math.max(14, r*0.18);
+  function ang(v){ return Math.PI*(1-(Math.max(lo,Math.min(hi,v))-lo)/(hi-lo)); }
+  function pt(v,rad){ var a=ang(v); return [cx+rad*Math.cos(a), cy-rad*Math.sin(a)]; }
+  function arcSeg(v1,v2,rad){
+    var p1=pt(v1,rad), p2=pt(v2,rad);
+    return 'M'+p1[0].toFixed(1)+' '+p1[1].toFixed(1)+' A'+rad+' '+rad+' 0 0 1 '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
+  }
+  /* 分区弧带：绿/黄/橙/红 */
+  var bands=[[lo,th-2,'#22C55E'],[th-2,th,'#EAB308'],[th,hi-3,'#F97316'],[hi-3,hi,'#EF4444']];
+  bands.forEach(function(b){ svg.appendChild(el('path',{d:arcSeg(b[0],b[1],r),fill:'none',stroke:b[2],'stroke-width':sw,opacity:.9})); });
+  /* 内侧细槽 */
+  svg.appendChild(el('path',{d:arcSeg(lo,hi,r-sw/2-5),fill:'none',stroke:'rgba(255,255,255,.08)','stroke-width':1.5}));
+  /* 阈值刻度线 */
+  var t1=pt(th,r+sw/2+3), t2=pt(th,r-sw/2-5);
+  svg.appendChild(el('line',{x1:t1[0],y1:t1[1],x2:t2[0],y2:t2[1],stroke:'#F1F4F8','stroke-width':2.5}));
+  var anchor = t1[0]>=cx?'start':'end';
+  svg.appendChild(txt(t1[0]+(t1[0]>=cx?5:-5), t1[1]-5,'阈值 '+th.toFixed(0),{'font-size':10,fill:'#B7C0CC','text-anchor':anchor}));
+  /* 当前值标记（跨弧带加粗刻度 + 光晕） */
+  var lv=gaugeLevel(val,th,hi), nc=RISK_C[lv];
+  var m1=pt(val,r-sw/2-4), m2=pt(val,r+sw/2+2);
+  svg.appendChild(el('line',{x1:m1[0],y1:m1[1],x2:m2[0],y2:m2[1],stroke:nc,'stroke-width':9,'stroke-linecap':'round',opacity:.25}));
+  svg.appendChild(el('line',{x1:m1[0],y1:m1[1],x2:m2[0],y2:m2[1],stroke:nc,'stroke-width':4,'stroke-linecap':'round'}));
+  /* 中央大数字 + 单位 */
+  svg.appendChild(txt(cx, cy-26, val.toFixed(1), {'font-size':40,'font-weight':800,fill:nc,'text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy-9, unit, {'font-size':11.5,fill:'#7C8694','text-anchor':'middle'}));
+  /* 量程端点 */
+  svg.appendChild(txt(cx-r-sw/2, cy+16, lo, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
+  svg.appendChild(txt(cx+r+sw/2, cy+16, hi, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
+}
+
+function drawRiskBand(){
+  var svg=document.getElementById('riskBand'); svg.innerHTML='';
+  var W=svg.clientWidth||1200,H=60,L=8,R=8,bh=28,bt=4;
+  var per=20;
+  for(var b=0;b<N/per;b++){
+    var seg=data.slice(b*per,(b+1)*per);
+    var valid=seg.filter(function(d){return d.dpValid;});
+    var lvl=0; var hasData=valid.length>0;
+    if(hasData){ seg.forEach(function(d){ if(d.dpValid){ var l=riskOf(d.dp,d.mp); if(l>lvl)lvl=l;} }); }
+    var x=L+b/per*(W-L-R);
+    var color = hasData? RISK_C[lvl] : '#252C38';
+    var op = hasData? 1 : .7;
+    svg.appendChild(el('rect',{x:x,y:bt,width:(W-L-R)/per-1.2,height:bh,rx:2.5,fill:color,opacity:op}));
+  }
+  var px=L+(N-1)/N*(W-L-R);
+  svg.appendChild(el('line',{x1:px,y1:bt-3,x2:px,y2:bt+bh+3,stroke:'#F1F4F8','stroke-width':2}));
+  svg.appendChild(el('path',{d:'M'+(px-5)+' '+(bt-3)+'L'+(px+5)+' '+(bt-3)+'L'+px+' '+bt+'Z',fill:'#F1F4F8'}));
+  for(var h=0;h<=24;h+=3){
+    var hx=L+h/24*(W-L-R);
+    svg.appendChild(txt(Math.min(hx,W-20),H-4,data[(N-1-(24-h)*60+1440*9)%1440].t,{'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
+  }
+}
+
+function drawRiskMap(svgId, tipId, W, H, showQuad){
+  var svg=document.getElementById(svgId); svg.innerHTML='';
+  var L=52,R=14,Tp=12,B=40,pw=W-L-R,ph=H-Tp-B;
+  var dpMax=25, mpMax=35;
+  function X(dp){ return L+dp/dpMax*pw; } function Y(mp){ return Tp+(mpMax-mp)/mpMax*ph; }
+  var xT=X(TH.dp), yT=Y(TH.mp);
+  if(showQuad){
+    svg.appendChild(el('rect',{x:xT,y:Tp,width:W-R-xT,height:yT-Tp,fill:'#EF4444','opacity':.06}));
+    svg.appendChild(el('rect',{x:L,y:Tp,width:xT-L,height:yT-Tp,fill:'#F97316','opacity':.06}));
+    svg.appendChild(el('rect',{x:xT,y:yT,width:W-R-xT,height:Tp+ph-yT,fill:'#EAB308','opacity':.07}));
+  }
+  for(var d=0; d<=dpMax; d+=5){ svg.appendChild(el('line',{x1:X(d),y1:Tp,x2:X(d),y2:Tp+ph,stroke:'rgba(255,255,255,.06)'})); svg.appendChild(txt(X(d),H-22,d,{'font-size':10,fill:'#7C8694','text-anchor':'middle'})); }
+  for(var m=0; m<=mpMax; m+=7){ svg.appendChild(el('line',{x1:L,y1:Y(m),x2:W-R,y2:Y(m),stroke:'rgba(255,255,255,.06)'})); svg.appendChild(txt(L-6,Y(m)+4,m,{'font-size':10,fill:'#7C8694','text-anchor':'end'})); }
+  svg.appendChild(el('line',{x1:xT,y1:Tp,x2:xT,y2:Tp+ph,stroke:'#EF4444','stroke-width':1.5,'stroke-dasharray':'6 5'}));
+  svg.appendChild(el('line',{x1:L,y1:yT,x2:W-R,y2:yT,stroke:'#EF4444','stroke-width':1.5,'stroke-dasharray':'6 5'}));
+  if(showQuad){
+    svg.appendChild(txt(W-R,yT-5,'MP 阈值 '+TH.mp.toFixed(0),{'font-size':10,fill:'#EF4444','text-anchor':'end','font-weight':'bold'}));
+    svg.appendChild(txt(W-R,Tp+ph+34,'ΔP 阈值 '+TH.dp.toFixed(0),{'font-size':10,fill:'#EF4444','text-anchor':'end','font-weight':'bold'}));
+    svg.appendChild(txt(X(2),Y(33),'左上 · 低应力高能量',{'font-size':10,fill:'#F97316','font-weight':'bold'}));
+    svg.appendChild(txt(W-R-2,Y(33),'右上 · 双高风险',{'font-size':10,fill:'#EF4444','font-weight':'bold','text-anchor':'end'}));
+    svg.appendChild(txt(X(2),Y(1.5),'左下 · 安全区',{'font-size':10,fill:'#22C55E','font-weight':'bold'}));
+    svg.appendChild(txt(W-R-2,Y(1.5),'右下 · 高应力',{'font-size':10,fill:'#EAB308','font-weight':'bold','text-anchor':'end'}));
+  }
+  svg.appendChild(txt(L+2,Tp+11,'MP (J/min)',{'font-size':10,fill:'#7C8694'}));
+  svg.appendChild(txt(W-R,Tp+ph+34,'ΔP (cmH₂O)',{'font-size':10,fill:'#7C8694','text-anchor':'start','x':L-40}));
+  var traj=data.slice(N-60).filter(function(d){return d.dpValid&&d.mpValid;});
+  var tip=tipId && document.getElementById(tipId);
+  traj.forEach(function(d,k){
+    var op=0.15+0.85*(k/traj.length), r=2.5+2.5*(k/traj.length);
+    var c=el('circle',{cx:X(Math.min(d.dp,dpMax)),cy:Y(Math.min(d.mp,mpMax)),r:r,fill:RISK_C[riskOf(d.dp,d.mp)],opacity:op,cursor:'pointer'});
+    if(tip){ c.addEventListener('mousemove',function(){ tip.style.display='block'; tip.innerHTML='<b>'+d.t+'</b>　ΔP '+d.dp.toFixed(1)+' cmH₂O · MP '+d.mp.toFixed(1)+' J/min'; tip.style.left='55%'; tip.style.top='4px'; }); c.addEventListener('mouseleave',function(){ tip.style.display='none'; }); }
+    svg.appendChild(c);
+  });
+  var last=data[N-1];
+  var cx=X(Math.min(last.dp,dpMax)), cy=Y(Math.min(last.mp,mpMax));
+  var ring=el('circle',{cx:cx,cy:cy,r:9,fill:'none',stroke:RISK_C[riskOf(last.dp,last.mp)],'stroke-width':2.4});
+  svg.appendChild(ring);
+  ring.appendChild(el('animate',{attributeName:'r',values:'9;15;9',dur:'1.6s',repeatCount:'indefinite'}));
+  ring.appendChild(el('animate',{attributeName:'opacity',values:'1;.15;1',dur:'1.6s',repeatCount:'indefinite'}));
+  svg.appendChild(el('circle',{cx:cx,cy:cy,r:5.5,fill:RISK_C[riskOf(last.dp,last.mp)],stroke:'#0E1218','stroke-width':2}));
+  svg.appendChild(txt(cx,cy-14,'当前',{'font-size':10.5,fill:'#F1F4F8','font-weight':'bold','text-anchor':'middle'}));
+}
+
+function statBoxes(containerId, s, unit, aucUnit, cumKj){
+  var h='';
+  h+='<div class="statbox"><div class="k">均值（当前窗口）</div><div class="v">'+s.mean.toFixed(1)+' <small>'+unit+'</small></div></div>';
+  h+='<div class="statbox"><div class="k">超阈值曲线下面积</div><div class="v">'+s.auc.toFixed(2)+' <small>'+aucUnit+'</small></div></div>';
+  h+='<div class="statbox"><div class="k">超阈值时间 / 占比</div><div class="v">'+fmtDur(s.ta)+' <small>'+(s.ratio*100).toFixed(1)+'%</small></div></div>';
+  if(cumKj!==undefined) h+='<div class="statbox"><div class="k">累积机械能（24h）</div><div class="v">'+cumKj.toFixed(1)+' <small>kJ</small></div></div>';
+  else h+='<div class="statbox"><div class="k">峰值</div><div class="v">'+s.max.toFixed(1)+' <small>'+unit+'</small></div></div>';
+  document.getElementById(containerId).innerHTML=h;
+}
+function segList(containerId, win, key, validKey, T, unit, color){
+  var arr=data.slice(N-win); var segs=[]; var cur=null;
+  arr.forEach(function(d,idx){
+    if(d[validKey] && d[key]>T){ if(!cur) cur={s:idx,e:idx,peak:d[key]}; else { cur.e=idx; if(d[key]>cur.peak)cur.peak=d[key]; } }
+    else if(cur){ segs.push(cur); cur=null; }
+  });
+  if(cur) segs.push(cur);
+  var h='';
+  if(!segs.length) h='<div style="font-size:12px;color:var(--t-3);padding:6px 2px;">当前窗口内无超阈值时段</div>';
+  segs.forEach(function(sg){
+    var dur=(sg.e-sg.s+1);
+    h+='<div class="evli"><div class="bar" style="background:'+color+'"></div><div><div><b>'+arr[sg.s].t+' – '+(arr[sg.e].t)+'</b>（'+fmtDur(dur)+'）</div><div style="color:var(--t-3);font-size:11px;">峰值 '+sg.peak.toFixed(1)+' '+unit+' ｜ 超出 '+(sg.peak-T).toFixed(1)+'</div></div></div>';
+  });
+  document.getElementById(containerId).innerHTML=h;
+}
+
+var alerts=[
+  {lv:3, lvN:'高风险', msg:'MP 持续高于阈值', meta:'15min均值 18.9 ≥ 17.0 J/min · 已持续 43 min · 建议评估通气强度（VT / RR）', time:'13:22 – 进行中', act:true},
+  {lv:2, lvN:'关注', msg:'ΔP 接近阈值', meta:'当前 14.6 cmH₂O（阈值 15.0），近 40 min 呈上行趋势（CUSUM）', time:'13:48 – 进行中', act:true},
+  {lv:2, lvN:'累积偏高', msg:'ΔP 累积暴露偏高（24h 占比 ≥ 15%）', meta:'24h 超阈值占比 18.2% · 主要集中于 09:15–11:40', time:'11:40 – 已恢复', act:false, ack:'医师 王×× 11:52 确认'},
+  {lv:1, lvN:'提示', msg:'MP 暂停评估（自主呼吸较强）', meta:'平台压可靠性不足，自动暂停 MP 计算 46 min；期间 ΔP 同步标注"不可靠"', time:'11:55 – 12:41 已恢复', act:false},
+  {lv:2, lvN:'累积偏高', msg:'MP 高于阈值', meta:'09:15–11:40 MP 峰值 21.4 J/min', time:'09:15 – 11:40 已恢复', act:false, ack:'医师 王×× 11:55 确认'},
+];
+var alFilter='all';
+function renderAlerts(){
+  var list=document.getElementById('alList'); var h='';
+  alerts.filter(function(a){ return alFilter==='all'||(alFilter==='act'?a.act:!a.act); }).forEach(function(a){
+    h+='<div class="al-item">'
+      +'<span class="lv l'+a.lv+'">'+a.lvN+'</span>'
+      +'<div><div class="msg">'+a.msg+'</div><div class="meta">'+a.meta+' · '+a.time+(a.ack?' · '+a.ack:'')+'</div></div>'
+      +'<div class="st">'+(a.act? '<span style="color:var(--dan);font-weight:bold;">● 活动中</span><button class="btn ghost-warn" onclick="ackAlert(this)">确认</button>' : '<span style="color:var(--t-3)">已恢复</span>')+'</div></div>';
+  });
+  if(!h) h='<div class="card" style="text-align:center;color:var(--t-3);">该筛选条件下暂无预警</div>';
+  list.innerHTML=h;
+  document.getElementById('alBadge').textContent=alerts.filter(function(a){return a.act;}).length;
+}
+function ackAlert(btn){
+  var item=btn.closest('.al-item');
+  var idx=[].indexOf.call(document.getElementById('alList').children,item);
+  var acts=alerts.filter(function(a){return alFilter==='all'||(alFilter==='act'?a.act:!a.act);});
+  if(acts[idx]){ acts[idx].act=false; acts[idx].ack='护士 李×× '+('0'+new Date().getHours()).slice(-2)+':'+('0'+new Date().getMinutes()).slice(-2)+' 确认'; }
+  renderAlerts(); toast('预警已确认（操作留痕）');
+}
+document.getElementById('alFilter').addEventListener('click',function(e){
+  if(e.target.classList.contains('btn')){
+    [].forEach.call(this.querySelectorAll('.btn'),function(b){b.classList.remove('on');});
+    e.target.classList.add('on'); alFilter=e.target.dataset.f; renderAlerts();
+  }
+});
+
+function renderDp(win){ drawTrend('dpChart','dpTip',win,'dp','dpValid',TH.dp,8,22,'cmH₂O','#3B82F6',true); statBoxes('dpStats',stats(data.slice(N-win),'dp','dpValid',TH.dp),'cmH₂O','cmH₂O·h'); segList('dpSegs',win,'dp','dpValid',TH.dp,'cmH₂O','#EF4444');
+  var vis=changePts.filter(function(c){return c.i>N-win;});
+  document.getElementById('dpCusum').innerHTML = vis.length? vis.map(function(c){return '· '+c.txt;}).join('<br>') : '<span style="color:var(--t-3)">当前窗口无变化点</span>';
+}
+function renderMp(win){ drawTrend('mpChart','mpTip',win,'mp','mpValid',TH.mp,8,26,'J/min','#A855F7',false); statBoxes('mpStats',stats(data.slice(N-win),'mp','mpValid',TH.mp),'J/min','J', data[N-1].cum); segList('mpSegs',win,'mp','mpValid',TH.mp,'J/min','#EF4444');
+  var svg=document.getElementById('mpEnergy'); svg.innerHTML='';
+  var W=svg.clientWidth||860,H=120,L=46,R=10,Tp=6,B=26,pw=W-L-R,ph=H-Tp-B;
+  var arr=data.slice(N-win); var lo=arr[0].cum, hi=arr[arr.length-1].cum;
+  var pts=arr.map(function(d,idx){ return (L+idx/(arr.length-1)*pw).toFixed(1)+','+(Tp+ph-(d.cum-lo)/((hi-lo)||1)*ph).toFixed(1); });
+  var step=win===1440?180:win===360?60:10;
+  for(var i=0;i<win;i+=step){ svg.appendChild(txt(L+i/(win-1)*pw,H-8,arr[i].t,{'font-size':9.5,fill:'#7C8694','text-anchor':'middle'})); }
+  svg.appendChild(el('polygon',{points:L+','+(Tp+ph)+' '+pts.join(' ')+' '+(W-R)+','+(Tp+ph),fill:'#A855F7','opacity':.14}));
+  svg.appendChild(el('polyline',{points:pts.join(' '),fill:'none',stroke:'#A855F7','stroke-width':2}));
+  svg.appendChild(txt(L+2,Tp+11,'kJ',{'font-size':9.5,fill:'#7C8694'}));
+  svg.appendChild(txt(W-R,Tp+11,hi.toFixed(1)+' kJ',{'font-size':10,fill:'#A855F7','text-anchor':'end','font-weight':'bold'}));
+}
+
+function renderAll(){
+  drawGauge('dpGauge', data[N-1].dp, TH.dp, 10, 22, 'cmH₂O');
+  drawGauge('mpGauge', data[N-1].mp, TH.mp, 8, 28, 'J/min');
+  drawRiskBand();
+  drawRiskMap('rmMini',null,420,190,false);
+  drawRiskMap('rmBig','rmTip',860,520,true);
+  renderDp(curWin.dp); renderMp(curWin.mp);
+  renderAlerts();
+}
+var curWin={dp:1440,mp:1440};
+
+function gotoPage(pg){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('on');});
+  document.getElementById('pg-'+pg).classList.add('on');
+  document.querySelectorAll('.navitem').forEach(function(n){ n.classList.toggle('on', n.dataset.page===pg); });
+  if(pg==='dp') renderDp(curWin.dp);
+  if(pg==='mp') renderMp(curWin.mp);
+  if(pg==='rm') drawRiskMap('rmBig','rmTip',860,520,true);
+  if(pg==='ov'){ drawGauge('dpGauge', data[N-1].dp, TH.dp, 10, 22, 'cmH₂O'); drawGauge('mpGauge', data[N-1].mp, TH.mp, 8, 28, 'J/min'); drawRiskBand(); drawRiskMap('rmMini',null,420,190,false); }
+}
+document.querySelectorAll('.navitem').forEach(function(n){ n.addEventListener('click',function(){ gotoPage(n.dataset.page); }); });
+
+document.getElementById('dpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){b.classList.remove('on');}); e.target.classList.add('on'); curWin.dp=+e.target.dataset.w; renderDp(curWin.dp);} });
+document.getElementById('mpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){b.classList.remove('on');}); e.target.classList.add('on'); curWin.mp=+e.target.dataset.w; renderMp(curWin.mp);} });
+
+var sldDp=document.getElementById('sldDp'), sldMp=document.getElementById('sldMp');
+sldDp.oninput=function(){ document.getElementById('sldDpV').textContent=(+this.value).toFixed(1); };
+sldMp.oninput=function(){ document.getElementById('sldMpV').textContent=(+this.value).toFixed(1); };
+function resetTh(){ sldDp.value=15; sldMp.value=17; document.getElementById('sldDpV').textContent='15.0'; document.getElementById('sldMpV').textContent='17.0'; toast('已恢复默认值（未保存）'); }
+function askSaveTh(){
+  document.getElementById('modalTxt').innerHTML='ΔP 阈值：<b>'+TH.dp.toFixed(1)+' → '+(+sldDp.value).toFixed(1)+' cmH₂O</b><br>MP 阈值：<b>'+TH.mp.toFixed(1)+' → '+(+sldMp.value).toFixed(1)+' J/min</b><br><br>阈值变更将影响风险分级与预警判定，并记入审计日志。';
+  document.getElementById('modal').classList.add('on');
+}
+document.getElementById('modalOk').onclick=function(){
+  TH.dp=+sldDp.value; TH.mp=+sldMp.value;
+  var tr=document.getElementById('auditBody');
+  var now=new Date();
+  tr.innerHTML='<tr><td>2026-08-26 '+('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+'</td><td>医师 王××</td><td>ΔP / MP 阈值</td><td>15.0 / 17.0</td><td><b>'+TH.dp.toFixed(1)+' / '+TH.mp.toFixed(1)+'</b></td><td>个体化调整（ARDS 质控）</td></tr>'+tr.innerHTML;
+  closeModal(); renderAll(); toast('阈值已更新，风险分级与图表已重新计算');
+};
+function closeModal(){ document.getElementById('modal').classList.remove('on'); }
+document.getElementById('modal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+
+var toastTimer=null;
+function toast(msg){
+  var t=document.getElementById('toast'); t.textContent=msg; t.style.display='block';
+  clearTimeout(toastTimer); toastTimer=setTimeout(function(){ t.style.display='none'; },2600);
+}
+
+document.getElementById('auditBody').innerHTML=
+ '<tr><td>2026-08-25 09:14</td><td>系统默认</td><td>ΔP / MP 阈值</td><td>—</td><td>15.0 / 17.0</td><td>循证默认（Amato 2015 / Chest 2025）</td></tr>';
+
+setInterval(function(){
+  var d=new Date();
+  document.getElementById('clk').textContent=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
+},1000);
+setInterval(function(){
+  var dpv=14.6+noise(0.25), mpv=18.9+noise(0.3);
+  drawGauge('dpGauge', dpv, TH.dp, 10, 22, 'cmH₂O');
+  drawGauge('mpGauge', mpv, TH.mp, 8, 28, 'J/min');
+},3000);
+
+requestAnimationFrame(function(){ setTimeout(renderAll, 60); });
+window.addEventListener('resize',function(){ setTimeout(renderAll,120); });
+</script>
+</body>
+</html>
+'''
+
+out = HTML_HEAD + CSS + '<' + '/style>\n</head>\n' + BODY + JS
+
+import os
+out_path = os.path.join(os.path.dirname(__file__), '产品原型-肺保护驾驶舱（15寸触摸屏WebUI）.html')
+with open(out_path, 'w', encoding='utf-8') as f:
+    f.write(out)
+print('OK', len(out), 'bytes ->', out_path)

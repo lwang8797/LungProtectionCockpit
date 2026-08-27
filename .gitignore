@@ -1,0 +1,13 @@
+# 依赖与缓存
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地助手配置（含记忆与运行数据，不纳入版本管理）
+.workbuddy/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.swp
