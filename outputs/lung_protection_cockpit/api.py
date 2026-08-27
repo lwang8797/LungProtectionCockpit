@@ -247,6 +247,51 @@ def compute_live_current(db, device_id: str = DEVICE_ID) -> dict:
     }
 
 
+def compute_snapshot(db, device_id: str = DEVICE_ID) -> dict:
+    """通气参数快照：取最新原始批次的关键通气参数（VT/RR/PEEP/PIP/Pplat/FiO₂/I:E/RSBI）。
+
+    与 compute_live_current 共享最新批次，但即使 ΔP/MP 无效（如待机）也返回该批次
+    能解析到的参数，供前端「通气参数快照」实时展示，避免显示写死的占位值。
+    直接按 paramId 映射（PARAM_MAP 命名不统一且部分参数未纳入，故此处显式绑定）。
+    """
+    # paramId -> (输出字段名, 是否为字符串)
+    SNAP_FIELDS = {
+        106: ("vt_ml", False),       # Vte 呼出潮气量 (mL)
+        110: ("vt_insp_ml", False),  # Vti 吸入潮气量 (mL)
+        113: ("rr", False),          # fTotal 总呼吸频率
+        104: ("peep", False),        # PEEP
+        101: ("pip", False),         # Ppeak 峰压
+        102: ("pplat", False),       # Pplat 平台压
+        107: ("fio2", False),        # FiO2
+        117: ("rsbi", False),        # RSBI
+        119: ("ie", True),           # I:E 比例（字符串，如 "2:1"）
+    }
+    raw = get_latest_raw_batch(db, device_id)
+    if not raw:
+        return {"valid": False}
+    snap = {
+        "valid": True,
+        "ts": int(raw[0]["timeStamp"]),
+        "dt": datetime.fromtimestamp(int(raw[0]["timeStamp"]) / 1000, tz=timezone.utc).isoformat(),
+        "vt_ml": None, "vt_insp_ml": None, "rr": None, "peep": None,
+        "pip": None, "pplat": None, "fio2": None, "rsbi": None, "ie": None,
+    }
+    for doc in raw:
+        pid = doc.get("paramId")
+        spec = SNAP_FIELDS.get(pid)
+        if not spec:
+            continue
+        key, is_str = spec
+        if is_str:
+            snap[key] = doc.get("value")
+        else:
+            v = to_float(doc.get("value"))
+            snap[key] = None if (v is None or (isinstance(v, float) and math.isnan(v))) else round(v, 1)
+    if all(snap[k] is None for k in ("vt_ml", "rr", "peep", "pip", "pplat", "fio2")):
+        snap["valid"] = False
+    return snap
+
+
 # ════════════════════ WebSocket 连接管理器 ════════════════════
 
 class ConnectionManager:
@@ -494,6 +539,8 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     if live.get("valid") and result.get("dp") and result.get("mp"):
         result["dp"]["current"] = live["dp"]
         result["mp"]["current"] = live["mp"]
+    # ── 通气参数快照（方案A 修复：前端此前为写死占位值）──
+    result["snapshot"] = compute_snapshot(db, device_id)
     return _clean_nan(result)
 
 

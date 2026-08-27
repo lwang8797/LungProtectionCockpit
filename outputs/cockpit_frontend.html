@@ -309,10 +309,10 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <h3>通气参数快照
             <span class="hintlink" style="margin-left:auto;" onclick="gotoPage('st')">适用范围与局限 ›</span></h3>
           <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;">
-            <div class="pcell"><div class="k">模式 / VT</div><div class="v"><span id="snapMode">--</span> <small>420 mL</small></div></div>
-            <div class="pcell"><div class="k">RR / PEEP</div><div class="v">22 <small>/min</small>　10 <small>cmH₂O</small></div></div>
-            <div class="pcell"><div class="k">PIP / Pplat</div><div class="v">28.4 <small>cmH₂O</small></div></div>
-            <div class="pcell"><div class="k">FiO₂</div><div class="v">50<small>%</small></div></div>
+            <div class="pcell"><div class="k">模式 / VT</div><div class="v"><span id="snapMode">--</span> <small id="snapVt">-- mL</small></div></div>
+            <div class="pcell"><div class="k">RR / PEEP</div><div class="v"><span id="snapRR">--</span> <small>/min</small>　<span id="snapPeep">--</span> <small>cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">PIP / Pplat</div><div class="v"><span id="snapPip">--</span> <small>cmH₂O</small> / <span id="snapPplat">--</span> <small>cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">FiO₂</div><div class="v"><span id="snapFio2">--</span><small>%</small></div></div>
           </div>
           <div class="note">⚠ <b>气道版本局限</b>：气道 ΔP / MP 包含胸壁因素，肥胖、腹高压、胸壁僵硬患者可能<b>高估或低估</b>真实肺应力与能量负荷。</div>
         </div>
@@ -771,34 +771,52 @@ function drawOverviewGauges(){
 }
 
 // ==================== Drawing: Risk Band ====================
+// 以「真实时间戳」锚定 24h 窗口：每个上报分钟按各自时间落点；
+// 时间刻度标注真实 UTC 时钟，避免旧版按索引等分（假设 1440 点）导致的错位。
 function drawRiskBand(){
   var svg=document.getElementById('riskBand'); if(!svg) return; svg.innerHTML='';
   var W=svg.clientWidth||1200,H=60,L=8,R=8,bh=28,bt=4;
-  var per=20;
-  var totalSegs=Math.ceil(N/per);
-  if(totalSegs===0){ svg.appendChild(txt(W/2,H/2,'暂无数据',{'font-size':12,fill:'#7C8694','text-anchor':'middle'})); return; }
-  for(var b=0;b<totalSegs;b++){
-    var seg=data.slice(b*per,(b+1)*per);
-    var valid=seg.filter(function(d){return d.dpValid;});
-    var lvl=0; var hasData=valid.length>0;
-    if(hasData){ seg.forEach(function(d){ if(d.dpValid){ var l=riskOf(d.dp,d.mp); if(l>lvl)lvl=l;} }); }
-    var x=L+b/totalSegs*(W-L-R);
-    var color = hasData? RISK_C[lvl] : '#252C38';
-    var op = hasData? 1 : .7;
-    svg.appendChild(el('rect',{x:x,y:bt,width:(W-L-R)/totalSegs-1.2,height:bh,rx:2.5,fill:color,opacity:op}));
+  if(N===0){ svg.appendChild(txt(W/2,H/2,'暂无数据',{'font-size':12,fill:'#7C8694','text-anchor':'middle'})); return; }
+  function toMs(s){ if(!s) return 0; var x=new Date(s).getTime(); return isNaN(x)?0:x; }
+  // 窗口右端 = 最新真实数据时间（连续上报时即"现在"）；向前 24h
+  var latestMs=0;
+  for(var k=N-1;k>=0;k--){ var m=toMs(data[k].dt); if(m){ latestMs=m; break; } }
+  if(!latestMs) latestMs = Date.now();
+  var winMs = 24*3600*1000;
+  var startMs = latestMs - winMs;
+  function X(ms){ return L + (ms - startMs)/winMs * (W-L-R); }
+  var minW = Math.max(2.5, 60000/winMs*(W-L-R));   // 单分钟最小柱宽
+  // 24h 背景网格（每 3h）
+  for(var h=0;h<=24;h+=3){
+    var gx = L + h/24*(W-L-R);
+    svg.appendChild(el('line',{x1:gx,y1:bt,x2:gx,y2:bt+bh,stroke:'rgba(255,255,255,.05)','stroke-width':1}));
   }
-  var px=L+(N-1)/N*(W-L-R);
+  // 真实上报分钟 -> 彩色柱（无效/缺参 -> 无数据灰）
+  for(var i=0;i<N;i++){
+    var ms=toMs(data[i].dt); if(!ms) continue;
+    if(ms<startMs || ms>latestMs) continue;
+    var d=data[i];
+    var lvl=(d.dpValid&&d.mpValid)?riskOf(d.dp,d.mp):0;
+    var color=(d.dpValid&&d.mpValid)?RISK_C[lvl]:'#252C38';
+    svg.appendChild(el('rect',{x:X(ms),y:bt,width:minW,height:bh,rx:1.5,fill:color,opacity:(d.dpValid&&d.mpValid)?1:.7}));
+  }
+  // 当前位置标记（最新真实读数）
+  var px=X(latestMs);
   svg.appendChild(el('line',{x1:px,y1:bt-3,x2:px,y2:bt+bh+3,stroke:'#F1F4F8','stroke-width':2}));
   svg.appendChild(el('path',{d:'M'+(px-5)+' '+(bt-3)+'L'+(px+5)+' '+(bt-3)+'L'+px+' '+bt+'Z',fill:'#F1F4F8'}));
-  // Time labels - safe for N < 1440
+  // 时间刻度标签（真实 UTC 时钟）
   for(var h=0;h<=24;h+=3){
-    var hx=L+h/24*(W-L-R);
-    var idx=N-1-(24-h)*60;
-    var tStr='--';
-    if(idx>=0 && idx<N && data[idx]) tStr=data[idx].t;
-    else if(idx<0 && N>0) tStr=data[0].t;
-    svg.appendChild(txt(Math.min(hx,W-20),H-4,tStr,{'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
+    var hms=startMs + h/24*winMs;
+    var hx=L + h/24*(W-L-R);
+    var dt=new Date(hms);
+    var lbl=('0'+dt.getUTCHours()).slice(-2)+':'+('0'+dt.getUTCMinutes()).slice(-2);
+    svg.appendChild(el('line',{x1:hx,y1:bt+bh,x2:hx,y2:bt+bh+3,stroke:'#3A4250','stroke-width':1}));
+    svg.appendChild(txt(Math.min(hx,W-20),H-4,lbl,{'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
   }
+  // 窗口说明
+  var a=new Date(startMs), b=new Date(latestMs);
+  var fmt=function(x){return ('0'+x.getUTCHours()).slice(-2)+':'+('0'+x.getUTCMinutes()).slice(-2);};
+  svg.appendChild(txt(L+2,H-16,'窗口 '+fmt(a)+'–'+fmt(b)+' UTC · 仅含真实上报分钟',{'font-size':9,fill:'#5A6473'}));
 }
 
 // ==================== Drawing: Risk Map ====================
@@ -1069,7 +1087,8 @@ async function fetchTrends(){
       var mpValid = mpVal !== null && mpVal !== undefined;
       if(mpValid) cumE += mpVal;
       data.push({
-        i: i, t: t,
+        i: i, t: t, dt: dt,
+        ts: dpSeries[i] ? dpSeries[i].ts : (mpSeries[i] ? mpSeries[i].ts : 0),
         dp: dpValid ? dpVal : 0,
         mp: mpValid ? mpVal : 0,
         dpValid: dpValid, mpValid: mpValid,
@@ -1230,6 +1249,21 @@ function updateOverviewUI(d){
   if(wmEl && d.work_mode) wmEl.textContent = d.work_mode;
   var snapMode = document.getElementById('snapMode');
   if(snapMode && d.work_mode) snapMode.textContent = d.work_mode;
+  // 通气参数快照（方案A 修复：此前为写死占位值 420 mL / 22 / 28.4 / 50%）
+  var snap = d.snapshot;
+  if(snap){
+    function setSnap(id, val, suffix){
+      var el = document.getElementById(id); if(!el) return;
+      if(val == null || val === undefined || (typeof val === 'number' && isNaN(val))){ el.textContent = '--'; }
+      else { el.textContent = (typeof val === 'number' ? val.toFixed(0) : val) + (suffix || ''); }
+    }
+    setSnap('snapVt', snap.vt_ml, ' mL');
+    setSnap('snapRR', snap.rr, ' /min');
+    setSnap('snapPeep', snap.peep, ' cmH₂O');
+    setSnap('snapPip', snap.pip, ' cmH₂O');
+    setSnap('snapPplat', snap.pplat, ' cmH₂O');
+    setSnap('snapFio2', snap.fio2, '%');
+  }
   // Gauges（自适应量程：当前值小也不被钉在边缘）
   var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : null;
   var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : null;
