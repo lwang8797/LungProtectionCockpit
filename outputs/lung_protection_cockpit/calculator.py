@@ -218,6 +218,30 @@ def classify_risk(
     return risk
 
 
+def classify_instant_risk(dp: float, mp: float) -> int:
+    """
+    瞬时单值风险评级 L1-L4（只看当前一次读数，不做"超阈占比"放大）。
+
+    与 classify_risk 的关键区别：单值场景没有"占比"概念，不能用 over_pct=100
+    直接判 L4（那会把一次轻微越阈误判为 L4 危险）。规则（合理默认，可随临床调整）：
+      L1 正常：ΔP≤阈 且 MP≤阈
+      L2 关注：任一项越阈（单次超阈）
+      L3 警告：ΔP≥20 或 MP≥24（明显超阈）
+      L4 危险：ΔP≥25 或 MP≥30（大幅超阈）
+    """
+    def _over(v, thr):
+        return v is not None and not math.isnan(v) and v > thr
+
+    risk = 1
+    if _over(dp, DP_THRESHOLD) or _over(mp, MP_THRESHOLD):
+        risk = 2
+    if _over(dp, 25) or _over(mp, 30):
+        risk = 4
+    elif _over(dp, 20) or _over(mp, 24):
+        risk = 3
+    return risk
+
+
 def classify_cumulative_risk(
     dp_over_hours: float, mp_over_hours: float, stratum: str = "high",
 ) -> int:

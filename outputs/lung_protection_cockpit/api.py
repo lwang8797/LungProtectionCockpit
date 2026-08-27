@@ -43,7 +43,7 @@ from .config import (
     CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
 from .collector import get_db, get_time_range, collect_raw, get_current_work_mode, get_latest_raw_batch, to_float, PARAM_MAP
-from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points, classify_risk
+from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points, classify_risk, classify_instant_risk
 
 logger = logging.getLogger("lung_cockpit.api")
 
@@ -232,8 +232,7 @@ def compute_live_current(db, device_id: str = DEVICE_ID) -> dict:
         }
     dp_over = dp > DP_THRESHOLD
     mp_over = mp > MP_THRESHOLD
-    over_pct = 100.0 if (dp_over or mp_over) else 0.0
-    risk = classify_risk(dp, over_pct, mp, over_pct)
+    risk = classify_instant_risk(dp, mp)
     age = int(datetime.now(timezone.utc).timestamp() - row["ts"] / 1000.0)
     return {
         "valid": True,
@@ -536,6 +535,10 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     # ── 实时当前值（方案A）：原始批次到达即计算，不等聚合分钟关门 ──
     live = compute_live_current(db, device_id)
     result["live"] = live
+    # 修正 risk_level_instant 语义：真正的「瞬时单值风险」（此前误用了窗口暴露风险）。
+    # 顶部等级条应随当前读数秒级回落，而非因近期历史高值长期停留 L4。
+    if live.get("valid"):
+        result["risk_level_instant"] = live.get("risk_level", result.get("risk_level_instant", 1))
     if live.get("valid") and result.get("dp") and result.get("mp"):
         result["dp"]["current"] = live["dp"]
         result["mp"]["current"] = live["mp"]

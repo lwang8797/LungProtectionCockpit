@@ -1175,9 +1175,12 @@ function updateOverviewUI(d){
     CUM_SEEDED = true;
     syncCumSliders();
   }
-  // 双维度合并风险：max(后端合并风险, 前端按当前 CUM 计算的累积维度风险)
+  // 双维度合并风险：max(瞬时单值风险, 累积维度风险)
+  // 注意：不再使用 d.risk_level（窗口暴露风险，易因近期历史高值长期停留 L4 不回落），
+  // 改用「瞬时单值风险」(d.live.risk_level / d.risk_level_instant)，随当前读数秒级更新
   var cumRisk = evalCumulative(d.cumulative);
-  var mergedRisk = Math.max((d.risk_level||1), cumRisk);
+  var instRisk = ((d.live && d.live.risk_level) || d.risk_level_instant || d.risk_level || 1);
+  var mergedRisk = Math.max(instRisk, cumRisk);
 
   // Rating band
   var band = document.querySelector('.rating-band');
