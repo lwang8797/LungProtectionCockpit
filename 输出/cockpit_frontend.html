@@ -394,11 +394,11 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
             <div class="card" style="margin-bottom:10px;">
               <h3>当前位置读数</h3>
               <div style="display:flex;gap:26px;margin:4px 0 10px;">
-                <div><div style="font-size:11px;color:var(--t-3);">ΔP</div><div style="font-size:26px;font-weight:800;color:var(--watch);">14.6<span style="font-size:12px;color:var(--t-3);"> cmH₂O</span></div></div>
-                <div><div style="font-size:11px;color:var(--t-3);">MP</div><div style="font-size:26px;font-weight:800;color:var(--warn);">18.9<span style="font-size:12px;color:var(--t-3);"> J/min</span></div></div>
-                <div><div style="font-size:11px;color:var(--t-3);">所在象限</div><div style="font-size:26px;font-weight:800;color:var(--warn);">左上</div></div>
+                <div><div style="font-size:11px;color:var(--t-3);">ΔP</div><div id="rmDpVal" style="font-size:26px;font-weight:800;color:var(--t-3);">—<span style="font-size:12px;color:var(--t-3);"> cmH₂O</span></div></div>
+                <div><div style="font-size:11px;color:var(--t-3);">MP</div><div id="rmMpVal" style="font-size:26px;font-weight:800;color:var(--t-3);">—<span style="font-size:12px;color:var(--t-3);"> J/min</span></div></div>
+                <div><div style="font-size:11px;color:var(--t-3);">所在象限</div><div id="rmQuad" style="font-size:26px;font-weight:800;color:var(--t-3);">—</div></div>
               </div>
-              <div class="note">轨迹方向提示：近 40 min 患者由<b>安全区</b>向<b>低应力·高能量区</b>移动，MP 上升主要由呼吸频率贡献，建议评估 RR 与吸气时间设置。</div>
+              <div class="note" id="rmNote">「当前位置读数」与左侧总览页共用同一实时数据（最近一次有效通气）。象限由 ΔP/MP 是否超阈值划分；红=双高、橙=低应力高能量、黄=高应力、绿=安全区。</div>
             </div>
             <div class="card">
               <h3>象限解读</h3>
@@ -1105,6 +1105,35 @@ async function fetchOverview(){
   } catch(e) { console.error('fetchOverview error:', e); }
 }
 
+// 风险图页签"当前位置读数"——与总览页当前值保持一致（同一 dpVal/mpVal 来源）
+function updateRmReadout(dpVal, mpVal){
+  var dpEl = document.getElementById('rmDpVal');
+  var mpEl = document.getElementById('rmMpVal');
+  var qEl = document.getElementById('rmQuad');
+  if(!dpEl || !mpEl || !qEl) return;
+  if(dpVal == null){
+    dpEl.innerHTML = '—<span style="font-size:12px;color:var(--t-3);"> cmH₂O</span>';
+    dpEl.style.color = 'var(--t-3)';
+  } else {
+    dpEl.innerHTML = dpVal.toFixed(1) + '<span style="font-size:12px;color:var(--t-3);"> cmH₂O</span>';
+    dpEl.style.color = 'var(--watch)';
+  }
+  if(mpVal == null){
+    mpEl.innerHTML = '—<span style="font-size:12px;color:var(--t-3);"> J/min</span>';
+    mpEl.style.color = 'var(--t-3)';
+  } else {
+    mpEl.innerHTML = mpVal.toFixed(2) + '<span style="font-size:12px;color:var(--t-3);"> J/min</span>';
+    mpEl.style.color = 'var(--warn)';
+  }
+  if(dpVal == null || mpVal == null){ qEl.textContent = '—'; qEl.style.color = 'var(--t-3)'; return; }
+  var hiDp = dpVal >= TH.dp, hiMp = mpVal >= TH.mp, label, color;
+  if(hiDp && hiMp){ label = '右上'; color = 'var(--dan)'; }
+  else if(!hiDp && hiMp){ label = '左上'; color = 'var(--warn)'; }
+  else if(hiDp && !hiMp){ label = '右下'; color = 'var(--watch)'; }
+  else { label = '左下'; color = 'var(--ok)'; }
+  qEl.textContent = label; qEl.style.color = color;
+}
+
 function updateOverviewUI(d){
   if(!d || d.error) return;
   // 累积阈值种子（首次从后端下发；之后以「设置」中的 CUM 为准）
@@ -1198,6 +1227,7 @@ function updateOverviewUI(d){
   // Gauges（自适应量程：当前值小也不被钉在边缘）
   var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : null;
   var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : null;
+  updateRmReadout(dpVal, mpVal);
   var dpScale = computeScale(dpVal, TH.dp);
   var mpScale = computeScale(mpVal, TH.mp);
   drawGauge('dpGauge', dpVal, TH.dp, dpScale[0], dpScale[1], 'cmH₂O');
