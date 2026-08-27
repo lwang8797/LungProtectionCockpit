@@ -37,9 +37,20 @@ PARAM_MAP = {
 MP_PARAM_IDS = [101, 106, 113, 160]   # PIP, Vte, ftotal, DrivePress
 ALL_PARAM_IDS = list(PARAM_MAP.keys())
 
-# ── 临床阈值 ──
+# ── 临床阈值（单值维度，循证）──
 DP_THRESHOLD = 15.0   # cmH2O  (Amato 2015 NEJM)
 MP_THRESHOLD = 17.0    # J/min  (Chest 2025)
+
+# ── 累积暴露阈值（累积维度，24h 窗口）──
+# ⚠ 待临床确认：以下为保守默认建议值，将来可在「设置」页随时调整。
+#    单位：机械能 kJ；MP 超阈 AUC kJ；ΔP 超阈 AUC cmH2O·min。
+#    仅设 L3（警告）/ L4（危险）两级；低于 L3 视为累积维度无风险（L1）。
+CUM_ENERGY_L3_KJ = 50.0     # 全天机械能负荷 ~ 阈值(17 J/min)持续一天≈24.5kJ，取 2 倍作 L3
+CUM_ENERGY_L4_KJ = 100.0    # 4 倍作 L4
+CUM_MP_AUC_L3_KJ = 1.5      # MP 超阈 AUC：(MP−17) 累积，24h 内每+1J/min≈1.44kJ
+CUM_MP_AUC_L4_KJ = 3.0
+CUM_DP_AUC_L3 = 1500.0      # ΔP 超阈 AUC：(ΔP−15) 累积，单位 cmH2O·min
+CUM_DP_AUC_L4 = 3000.0
 
 # ── 风险评级 ──
 RISK_LABELS = {

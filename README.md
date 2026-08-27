@@ -20,6 +20,26 @@
 
 本仓库使用 Git 进行版本管理。忽略项见 `.gitignore`（含 `node_modules/`、`__pycache__/`、`.workbuddy/` 等）。
 
+## 核心能力
+
+- **ΔP / MP 计算**：驱动压（直读优先 / Pplat−PEEP 备用）、机械功率（Gattinoni 公式），逐点与分钟级聚合。
+- **累积暴露报警（双维度合并风险）**：总览页风险评级 = `max(瞬时单值维度, 累积暴露维度)`。
+  - 瞬时维度：ΔP / MP 是否越过单值阈值（ΔP≥15、MP≥17，循证）。
+  - 累积维度：通气全程滚动累计的机械能 / ΔP 超阈 AUC / MP 超阈 AUC，越过 24h 保守默认阈值（L3 / L4）即升级。
+  - 累积暴露阈值（机械能 / ΔP AUC / MP AUC 的 L3、L4）集中在 `输出/lung_protection_cockpit/config.py`，并在前端「设置」页可随时调整（⚠ 待临床/医师确认）。
+  - 后端预警区分 `category="threshold"`（单值越限）与 `category="cumulative"`（累积越限），按 (risk_level, category) 去重、互不覆盖。
+
+## 测试
+
+```bash
+# 离线纯逻辑测试（无需 MongoDB / 网络）：累积维度评级与合并风险
+cd 输出
+PYTHONPATH=. python scripts/test_cumulative_logic.py
+
+# 端到端 API 测试（需先启动服务 + MongoDB）
+# 见 scripts/test_api.py
+```
+
 ## 快速开始
 
 ```bash

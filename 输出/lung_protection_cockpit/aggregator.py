@@ -18,9 +18,14 @@ from datetime import datetime, timezone
 from .config import (
     MONGO_URI, MONGO_DB, COLL_1MIN, COLL_ALERTS, COLL_RAW,
     DEVICE_ID, DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS,
+    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
+    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
+    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
 )
 from .collector import get_db, collect_minute_raw
-from .calculator import enrich_rows, filter_ventilated, compute_exposure
+from .calculator import (
+    enrich_rows, filter_ventilated, compute_exposure, classify_cumulative_risk,
+)
 
 logger = logging.getLogger("lung_cockpit.aggregator")
 
@@ -90,6 +95,8 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
             "cumulative_mp_auc": 0.0,
             "cumulative_energy": 0.0,
             "vent_duration_min": 0.0,
+            "risk_level_instant": 1,
+            "cumulative_risk_level": 1,
             "risk_level": 1,
             "risk_label": RISK_LABELS[1],
             "pip_mean": None, "peep_mean": None, "vt_mean": None,
@@ -127,6 +134,17 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
         inc_dp_auc = exposure["dp"]["auc"] or 0
         inc_mp_auc = exposure["mp"]["auc"] or 0
 
+        # 滚动累积量（通气全程，不随查询窗口截断）
+        cum_dp_auc = prev_cum_dp + inc_dp_auc
+        cum_mp_auc = prev_cum_mp + inc_mp_auc
+        cum_energy = prev_cum_energy + inc_energy
+        vent_min_total = prev_vent_min + dt_min
+
+        # 双维度风险：瞬时（单值） + 累积（暴露）
+        instant_risk = exposure["risk_level"]
+        cumulative_risk = classify_cumulative_risk(cum_dp_auc, cum_mp_auc, cum_energy, vent_min_total)
+        merged_risk = max(instant_risk, cumulative_risk)
+
         doc = {
             "deviceId": device_id,
             "minute": minute_start_ts,
@@ -147,13 +165,15 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
             "mp_over_pct": exposure["mp"]["over_pct"],
             "mp_auc": inc_mp_auc,
             # 累积
-            "cumulative_dp_auc": prev_cum_dp + inc_dp_auc,
-            "cumulative_mp_auc": prev_cum_mp + inc_mp_auc,
-            "cumulative_energy": prev_cum_energy + inc_energy,
-            "vent_duration_min": prev_vent_min + dt_min,
-            # 风险
-            "risk_level": exposure["risk_level"],
-            "risk_label": exposure["risk_label"],
+            "cumulative_dp_auc": cum_dp_auc,
+            "cumulative_mp_auc": cum_mp_auc,
+            "cumulative_energy": cum_energy,
+            "vent_duration_min": vent_min_total,
+            # 风险（双维度合并）
+            "risk_level_instant": instant_risk,
+            "cumulative_risk_level": cumulative_risk,
+            "risk_level": merged_risk,
+            "risk_label": RISK_LABELS.get(merged_risk, "L1 正常"),
             # 原始参数快照
             "pip_mean": _nan_to_none(_mean("PIP")),
             "peep_mean": _nan_to_none(_mean("PEEP")),
@@ -178,21 +198,37 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
 
 
 def _check_and_alert(db, device_id: str, ts: int, doc: dict):
-    """检查并写入预警事件（简单去重：同分钟同类只写一条）"""
+    """检查并写入预警事件（按 (risk_level, category) 5分钟窗口去重）
+
+    预警分两类：
+      - category="threshold"  ：瞬时单值越限（ΔP/MP 超过单点阈值）
+      - category="cumulative" ：累积暴露越限（24h 累积 AUC / 机械能超阈值）
+    两类独立去重、独立存储，互不覆盖。
+    """
     risk = doc.get("risk_level", 1)
     if risk < 2:
         return
 
-    # 检查最近是否已有同级别预警（5分钟窗口去重）
+    instant = doc.get("risk_level_instant", 1)
+    cum = doc.get("cumulative_risk_level", 1)
+
+    # 判定主导类别：累积维度高于瞬时维度 → 累积类；否则单值类
+    if cum >= 2 and cum >= instant:
+        category = "cumulative"
+    else:
+        category = "threshold"
+
+    # 5分钟窗口内同 (级别, 类别) 去重
     recent = db[COLL_ALERTS].find_one({
         "deviceId": device_id,
         "ts": {"$gte": ts - 5 * 60 * 1000},
         "risk_level": risk,
+        "category": category,
     })
     if recent:
         return
 
-    # 构造预警消息
+    # 构造预警消息：单值部分
     parts = []
     if doc.get("dp_max") and doc["dp_max"] > DP_THRESHOLD:
         parts.append(f"ΔP={doc['dp_max']:.1f} 超阈值({DP_THRESHOLD:.0f})")
@@ -203,20 +239,49 @@ def _check_and_alert(db, device_id: str, ts: int, doc: dict):
     if doc.get("mp_over_pct", 0) > 20:
         parts.append(f"MP超阈占比{doc['mp_over_pct']:.0f}%")
 
+    # 累积部分（仅在累积类预警中附上，避免重复干扰）
+    cparts = []
+    if cum >= 2:
+        energy_kj = (doc.get("cumulative_energy", 0) or 0) / 1000.0
+        mp_auc_kj = (doc.get("cumulative_mp_auc", 0) or 0) / 1000.0
+        dp_auc = doc.get("cumulative_dp_auc", 0) or 0
+        if energy_kj >= CUM_ENERGY_L3_KJ:
+            cparts.append(f"累积机械能{energy_kj:.1f}kJ")
+        if dp_auc >= CUM_DP_AUC_L3:
+            cparts.append(f"ΔP累积AUC{dp_auc:.0f}")
+        if mp_auc_kj >= CUM_MP_AUC_L3_KJ:
+            cparts.append(f"MP累积AUC{mp_auc_kj:.1f}kJ")
+
+    if category == "cumulative":
+        # 累积类：以累积原因为主
+        if cparts:
+            message = "；".join(cparts)
+        elif parts:
+            message = "；".join(parts)
+        else:
+            message = "累积暴露升高"
+    else:
+        message = "；".join(parts) if parts else "风险升高"
+
     alert = {
         "deviceId": device_id,
         "ts": ts,
         "tsISO": datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat(),
         "risk_level": risk,
         "risk_label": RISK_LABELS.get(risk, ""),
-        "message": "；".join(parts) if parts else "风险升高",
+        "category": category,
+        "message": message,
+        "detail": "；".join(parts + cparts) if (parts or cparts) else "风险升高",
         "dp_max": doc.get("dp_max"),
         "mp_max": doc.get("mp_max"),
         "dp_over_pct": doc.get("dp_over_pct", 0),
         "mp_over_pct": doc.get("mp_over_pct", 0),
+        "cumulative_energy_j": doc.get("cumulative_energy"),
+        "cumulative_dp_auc": doc.get("cumulative_dp_auc"),
+        "cumulative_mp_auc": doc.get("cumulative_mp_auc"),
     }
     db[COLL_ALERTS].insert_one(alert)
-    logger.info(f"预警写入: {alert['message']} @ {alert['tsISO']}")
+    logger.info(f"预警写入[{category}]: {alert['message']} @ {alert['tsISO']}")
 
 
 def backfill(db, device_id: str = DEVICE_ID, hours: float = 24):

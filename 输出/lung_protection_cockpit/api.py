@@ -36,6 +36,9 @@ from .config import (
     MONGO_URI, MONGO_DB, COLL_RAW, COLL_1MIN, COLL_ALERTS,
     DEVICE_ID, DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS,
     DEFAULT_WINDOW_HOURS,
+    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
+    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
+    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
 )
 from .collector import get_db, get_time_range, collect_raw, get_current_work_mode
 from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points
@@ -105,6 +108,41 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+# ── 累积暴露阈值（随响应下发，前端据此在「设置」中调整；待临床确认）──
+CUM_THRESHOLDS = {
+    "energy_l3_kj": CUM_ENERGY_L3_KJ,
+    "energy_l4_kj": CUM_ENERGY_L4_KJ,
+    "mp_auc_l3_kj": CUM_MP_AUC_L3_KJ,
+    "mp_auc_l4_kj": CUM_MP_AUC_L4_KJ,
+    "dp_auc_l3": CUM_DP_AUC_L3,
+    "dp_auc_l4": CUM_DP_AUC_L4,
+}
+
+
+def _cumulative_block(cum_dp_auc, cum_mp_auc_j, cum_energy_j, vent_min, cum_risk_level):
+    """构造总览 cumulative 块：原始累积量 + 累积维度风险 + 默认阈值 + 报警标志。"""
+    energy_kj = (cum_energy_j or 0) / 1000.0
+    mp_auc_kj = (cum_mp_auc_j or 0) / 1000.0
+    dp_auc = cum_dp_auc or 0
+    return {
+        "energy_j": round(cum_energy_j or 0, 1),
+        "energy_kj": round(energy_kj, 2),
+        "dp_auc": round(cum_dp_auc or 0, 1),
+        "mp_auc_j": round(cum_mp_auc_j or 0, 1),
+        "mp_auc_kj": round(mp_auc_kj, 3),
+        "vent_duration_min": round(vent_min or 0, 1),
+        "risk_level": cum_risk_level,
+        "risk_label": RISK_LABELS.get(cum_risk_level, "L1 正常"),
+        "thresholds": CUM_THRESHOLDS,
+        # 默认阈值下的越限标志（前端会用设置中的 CUM 重新判定）
+        "alarms": {
+            "energy_over": energy_kj >= CUM_ENERGY_L3_KJ,
+            "dp_auc_over": dp_auc >= CUM_DP_AUC_L3,
+            "mp_auc_over": mp_auc_kj >= CUM_MP_AUC_L3_KJ,
+        },
+    }
+
+
 # ════════════════════ 核心逻辑（REST + WS 共用） ════════════════════
 
 def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW_HOURS) -> dict:
@@ -147,6 +185,7 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         cum_mp_auc = last_doc.get("cumulative_mp_auc", 0)
         vent_min = last_doc.get("vent_duration_min", 0)
         risk = last_doc.get("risk_level", 1)
+        cum_risk = last_doc.get("cumulative_risk_level", 1)
 
         return {
             "device": device_id,
@@ -154,6 +193,8 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "work_mode": work_mode,
             "risk_level": risk,
             "risk_label": RISK_LABELS.get(risk, "L1 正常"),
+            "risk_level_instant": last_doc.get("risk_level_instant", 1),
+            "cumulative_risk_level": cum_risk,
             "dp": {
                 "current": dp_vals[-1] if dp_vals else None,
                 "max": round(dp_max_val, 1),
@@ -168,12 +209,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
                 "threshold": MP_THRESHOLD,
                 "over_pct": round(mp_over_pct, 1),
             },
-            "cumulative": {
-                "energy_j": round(cum_energy, 1),
-                "dp_auc": round(cum_dp_auc, 1),
-                "mp_auc": round(cum_mp_auc, 1),
-                "vent_duration_min": round(vent_min, 1),
-            },
+            "cumulative": _cumulative_block(
+                cum_dp_auc, cum_mp_auc, cum_energy, vent_min, cum_risk
+            ),
             "vent_minutes": len(vent_docs),
             "total_minutes": len(agg_docs),
         }
@@ -188,12 +226,21 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     use_rows = vent_rows if vent_rows else rows
     exposure = compute_exposure(use_rows)
 
+    cum_dp_auc = exposure["dp"]["auc"]
+    cum_mp_auc_j = exposure["mp"]["auc"]
+    cum_energy_j = exposure["cumulative_energy_j"]
+    vent_min = len(use_rows) * 4 / 60
+    cum_risk = exposure["cumulative_risk_level"]
+    risk = max(exposure["risk_level"], cum_risk)
+
     return {
         "device": device_id,
         "source": "realtime",
         "work_mode": work_mode,
-        "risk_level": exposure["risk_level"],
-        "risk_label": exposure["risk_label"],
+        "risk_level": risk,
+        "risk_label": RISK_LABELS.get(risk, "L1 正常"),
+        "risk_level_instant": exposure["risk_level"],
+        "cumulative_risk_level": cum_risk,
         "dp": {
             "current": round(use_rows[-1]["dP"], 1) if use_rows and not math.isnan(use_rows[-1].get("dP", float("nan"))) else None,
             "max": round(exposure["dp"]["max"], 1) if not math.isnan(exposure["dp"]["max"]) else None,
@@ -208,12 +255,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "threshold": MP_THRESHOLD,
             "over_pct": round(exposure["mp"]["over_pct"], 1),
         },
-        "cumulative": {
-            "energy_j": round(exposure["cumulative_energy_j"], 1),
-            "dp_auc": round(exposure["dp"]["auc"], 1),
-            "mp_auc": round(exposure["mp"]["auc"], 1),
-            "vent_duration_min": round(len(use_rows) * 4 / 60, 1),
-        },
+        "cumulative": _cumulative_block(
+            cum_dp_auc, cum_mp_auc_j, cum_energy_j, vent_min, cum_risk
+        ),
         "vent_minutes": int(len(use_rows) * 4 / 60),
         "total_minutes": int(len(rows) * 4 / 60),
     }
@@ -259,6 +303,7 @@ async def health_check():
                 "newest": datetime.fromtimestamp(new_ts / 1000, tz=timezone.utc).isoformat(),
             },
             "thresholds": {"dp": DP_THRESHOLD, "mp": MP_THRESHOLD},
+            "cumulative_thresholds": CUM_THRESHOLDS,
             "ws_connected": len(manager.active),
         }
     except Exception as e:

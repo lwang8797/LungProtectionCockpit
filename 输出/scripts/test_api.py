@@ -75,7 +75,8 @@ def main():
     # 1. 总览仪表盘
     print("[2/8] 总览仪表盘")
     check("GET /api/overview", f"{BASE}/api/overview",
-          expected_keys=["risk_level", "risk_label", "dp", "mp"])
+          expected_keys=["risk_level", "risk_label", "dp", "mp",
+                         "risk_level_instant", "cumulative_risk_level", "cumulative"])
     time.sleep(0.5)
 
     # 2. DeltaP 趋势

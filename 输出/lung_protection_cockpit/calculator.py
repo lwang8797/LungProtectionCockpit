@@ -9,6 +9,9 @@ from typing import Optional
 
 from .config import (
     DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS, SAMPLE_INTERVAL_S,
+    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
+    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
+    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
 )
 
 
@@ -118,8 +121,11 @@ def compute_exposure(rows: list) -> dict:
                 mp_auc += (e0 + e1) / 2 * dt_min
                 cum_energy += ((m0 + m1) / 2) * dt_min
 
-    # 风险评级
+    # 风险评级（瞬时单值维度）
     risk = classify_risk(dp_max, dp_over_pct, mp_max, mp_over_pct)
+
+    # 累积维度评级（由累积 AUC / 累积机械能 判定，阈值为 24h 窗口保守默认）
+    cum_risk = classify_cumulative_risk(dp_auc, mp_auc, cum_energy)
 
     return {
         "dp": {
@@ -137,6 +143,8 @@ def compute_exposure(rows: list) -> dict:
         "cumulative_energy_j": cum_energy,
         "risk_level": risk,
         "risk_label": RISK_LABELS.get(risk, "L1 正常"),
+        "cumulative_risk_level": cum_risk,
+        "cumulative_risk_label": RISK_LABELS.get(cum_risk, "L1 正常"),
         "vent_points": len(dp_vals),
     }
 
@@ -157,6 +165,36 @@ def classify_risk(
         risk = max(risk, 3)
     if dp_over_pct > 50 or mp_over_pct > 50:
         risk = max(risk, 4)
+    return risk
+
+
+def classify_cumulative_risk(
+    cum_dp_auc: float, cum_mp_auc_j: float, cum_energy_j: float,
+    vent_min: float = None,
+) -> int:
+    """
+    累积维度风险评级 L1-L4（24h 窗口）。
+
+    依据累积暴露指标是否越过 L3/L4 保守默认阈值：
+      - 机械能（kJ）、MP 超阈 AUC（kJ）、ΔP 超阈 AUC（cmH2O·min）
+    低于 L3 → L1（累积维度无风险）；越 L3 → L3；越 L4 → L4。
+    累积维度仅会提升到 L3/L4，不会单独产生 L2（L2 由瞬时单值维度负责）。
+
+    ⚠ 阈值待临床确认，可在设置页调整（见 config.CUM_*）。
+    """
+    energy_kj = (cum_energy_j or 0.0) / 1000.0
+    mp_auc_kj = (cum_mp_auc_j or 0.0) / 1000.0
+    dp_auc = cum_dp_auc or 0.0
+
+    risk = 1
+    if (energy_kj >= CUM_ENERGY_L4_KJ
+            or mp_auc_kj >= CUM_MP_AUC_L4_KJ
+            or dp_auc >= CUM_DP_AUC_L4):
+        risk = 4
+    elif (energy_kj >= CUM_ENERGY_L3_KJ
+            or mp_auc_kj >= CUM_MP_AUC_L3_KJ
+            or dp_auc >= CUM_DP_AUC_L3):
+        risk = 3
     return risk
 
 

@@ -443,8 +443,8 @@ WantedBy=multi-user.target</code></pre>
 
 <hr>
 
-<h2>9. 修改规划（待确认）：累积暴露报警接入总览页</h2>
-<div class="note">本节为待确认方案，<b>尚未实施</b>。请确认下列设计要点（尤其 9.4 累积阈值）后再开工。</div>
+<h2>9. 修改规划（已实施 · 2026-08-27）：累积暴露报警接入总览页</h2>
+<div class="note">本节方案已落地。用户确认采用「双维度合并风险」；累积暴露阈值按用户要求<b>保留在「设置」页、可随时设置与修改</b>，当前为保守默认、<b>待临床（医师）确认</b>。</div>
 
 <h3>9.1 目标</h3>
 <p>让总览页的 ΔP/MP 风险评级与报警，同时反映「瞬时单值阈值」与「累积暴露」两个维度；后端预警区分 <code>threshold</code>（单值越限）与 <code>cumulative</code>（累积暴露越限）两类，使项目定位（ΔP/MP 累积暴露）与总览行为一致。</p>
@@ -474,29 +474,30 @@ WantedBy=multi-user.target</code></pre>
 <li><b>设置页</b>：新增累积阈值滑动条（与单值阈值同款医师权限 + 二次确认 + 审计）。</li>
 </ul>
 
-<h3>9.4 累积暴露阈值（关键待确认项 ⚠）</h3>
+<h3>9.4 累积暴露阈值（关键 · 待临床确认 ⚠）</h3>
 <div class="warn">
-<b>临床依据说明：</b> 单值阈值（ΔP≥15、MP≥17）有循证支持；但<b>「累积暴露」的报警阈值目前缺乏统一临床标准</b>，需医师确认或采用保守默认。下表为<b>建议默认值（单位时间窗内的累积量）</b>，务必经临床审核：
+<b>临床依据说明：</b> 单值阈值（ΔP≥15、MP≥17）有循证支持；但<b>「累积暴露」的报警阈值目前缺乏统一临床标准</b>，需医师确认或采用保守默认。下表为<b>已实施的保守默认（24h 窗口）</b>，已在 config.py 定义并可在前端「设置」页随时调整：
 <table>
-<tr><th>指标</th><th>窗口</th><th>建议默认值（待确认）</th><th>含义/触发</th></tr>
-<tr><td>cumulative_energy（累积机械能）</td><td>24h</td><td>L3 ≈ 50 kJ、L4 ≈ 100 kJ（示意，待定）</td><td>全天能量负荷；≈ 阈值(17 J/min)持续一天 ≈ 24.5 kJ，2–4 倍作分级参考</td></tr>
-<tr><td>cumulative_mp_auc（MP 超阈 AUC）</td><td>24h</td><td>L3 / L4 阈值待定</td><td>MP 超出 17 的累积量</td></tr>
-<tr><td>cumulative_dp_auc（ΔP 超阈 AUC）</td><td>24h</td><td>L3 / L4 阈值待定</td><td>ΔP 超出 15 的累积量</td></tr>
+<tr><th>指标</th><th>窗口</th><th>已实施默认值</th><th>含义/触发</th></tr>
+<tr><td>cumulative_energy（累积机械能）</td><td>24h</td><td>L3 = 50 kJ、L4 = 100 kJ</td><td>全天能量负荷；≈ 阈值(17 J/min)持续一天 ≈ 24.5 kJ，2–4 倍作分级参考</td></tr>
+<tr><td>cumulative_mp_auc（MP 超阈 AUC）</td><td>24h</td><td>L3 = 1.5 kJ、L4 = 3.0 kJ</td><td>MP 超出 17 的累积量（单位 kJ）</td></tr>
+<tr><td>cumulative_dp_auc（ΔP 超阈 AUC）</td><td>24h</td><td>L3 = 1500、L4 = 3000（cmH₂O·min）</td><td>ΔP 超出 15 的累积量</td></tr>
 </table>
-<b>请确认：</b> (a) 是否采用「双维度合并风险」； (b) 累积阈值使用上述保守默认或您指定的值； (c) 窗口统一 24h 还是按通气时长归一化（如 kJ/24h·vent_h）。
+<b>实施约定：</b> (a) 已采用「双维度合并风险」<code>risk_level = max(瞬时, 累积)</code>； (b) 阈值使用上述保守默认，<b>保留在「设置」页，医师可随时修改并写入审计日志</b>（前端实时重算合并风险与报警）； (c) 窗口统一 24h（累积量为通气全程滚动累计，不随查询窗口截断）。<b>待医师确认后替换默认值。</b>
 </div>
 
 <h3>9.5 测试与文档</h3>
 <ul>
-<li>scripts/test_api.py：新增用例——构造高累积场景（如 MP 长期略低于阈值但累积 AUC 超阈），断言后端触发 <code>category="cumulative"</code> 预警且 risk_level 提升。</li>
-<li>更新本实施方案（本节）、README、及设计/需求文档中相关描述，使「累积暴露报警」与实际行为一致。</li>
-<li>回归：单值越限仍正常报警（category="threshold"），两类预警不互相覆盖。</li>
+<li><b>scripts/test_cumulative_logic.py（新增，离线可跑）</b>：覆盖 classify_cumulative_risk 的 L1/L3/L4 边界、compute_exposure 双维度输出，以及「低瞬时 / 高累积」场景（验证累积维度独立将评级拉升至 L3，缺口已修复）。全部 18 例通过。</li>
+<li>scripts/test_api.py：总览端点断言新增 <code>risk_level_instant</code> / <code>cumulative_risk_level</code> / <code>cumulative</code> 字段。</li>
+<li>更新本实施方案（本节）、README，使「累积暴露报警」与实际行为一致。</li>
+<li>回归：单值越限仍正常报警（category="threshold"），累积越限独立报警（category="cumulative"），两类预警按 (risk_level, category) 去重、互不覆盖。</li>
 </ul>
 
 <hr>
 
 <div class="footer">
-<p>肺保护驾驶舱 · 实施方案（基于真实数据） · 2026-08-27 v2（据代码库现状更新）</p>
+<p>肺保护驾驶舱 · 实施方案（基于真实数据） · 2026-08-27 v2.1（累积暴露报警已实施）</p>
 <p>数据源：MongoDB 192.168.1.100:27017 / data-services-prod.measure_param</p>
 </div>
 

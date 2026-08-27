@@ -154,6 +154,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
 .al-item .msg{font-size:13.5px;font-weight:bold;color:var(--t-1);}
 .al-item .meta{font-size:11.5px;color:var(--t-3);margin-top:2px;line-height:1.55;}
 .al-item .st{margin-left:auto;font-size:12px;color:var(--t-2);display:flex;align-items:center;gap:10px;}
+.catpill{display:inline-block;background:var(--pur);color:#fff;font-size:10px;font-weight:bold;padding:2px 7px;border-radius:8px;margin-right:6px;vertical-align:1px;}
 
 /* 设置 */
 .set-row{display:flex;align-items:center;gap:16px;padding:13px 4px;border-bottom:1px dashed var(--line);}
@@ -270,12 +271,26 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           </div>
         </div>
 
+        <!-- 累积暴露卡片：双维度之「累积维度」 -->
+        <div class="card" style="margin-bottom:14px;">
+          <h3>累积暴露（通气全程）
+            <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
+          </h3>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
+            <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
+            <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·min</small></div></div>
+            <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>kJ</small></div></div>
+            <div class="pcell"><div class="k">通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
+          </div>
+          <div class="note">累积维度风险：<b id="cumRiskText">L1 正常</b>　·　评级 = max(瞬时单值维度, 累积暴露维度)</div>
+        </div>
+
         <div class="card band-card">
           <h3>24h 风险分级时间带
             <span class="legend">
               <span><i style="background:var(--ok)"></i>低风险</span><span><i style="background:var(--watch)"></i>关注</span><span><i style="background:var(--warn)"></i>累积偏高</span><span><i style="background:var(--dan)"></i>高风险</span><span><i style="background:var(--t-4)"></i>无数据</span>
             </span>
-            <span class="hint" style="margin-left:auto;">分级依据：实时值 + 累积暴露指标组合判定（详见设置）</span>
+            <span class="hint" style="margin-left:auto;">整体评级 = 实时单值 + 累积暴露 双维度合并；下方色带为逐分钟单值历史</span>
           </h3>
           <svg id="riskBand" width="100%" height="60"></svg>
         </div>
@@ -397,8 +412,8 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         <div class="trend-head">
           <span class="title">预警中心</span>
           <span class="sub">全部提示均为风险提示与决策支持，不构成诊断结论</span>
-          <div class="seg" id="alFilter" style="margin-left:auto;">
-            <button class="btn on" data-f="all">全部</button><button class="btn" data-f="act">活动中</button><button class="btn" data-f="done">已恢复</button>
+            <div class="seg" id="alFilter" style="margin-left:auto;">
+            <button class="btn on" data-f="all">全部</button><button class="btn" data-f="act">活动中</button><button class="btn" data-f="done">已恢复</button><button class="btn" data-f="cum">累积类</button>
           </div>
         </div>
         <div id="alList"></div>
@@ -424,6 +439,45 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
               <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
                 <button class="btn" onclick="resetTh()">恢复默认</button>
                 <button class="btn pri" onclick="askSaveTh()">保存阈值</button>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:12px;">
+              <h3>累积暴露阈值（待临床确认）
+                <span class="hint" style="margin-left:auto;">保守默认 · 医师权限 + 二次确认 · 自动审计</span>
+              </h3>
+              <div class="set-row">
+                <div class="lab">累积机械能 L3<small>默认 50 kJ · 24h 窗口 · 范围 10–200</small></div>
+                <input type="range" id="sldCumEngL3" min="10" max="200" step="5" value="50">
+                <div class="set-val" id="sldCumEngL3V">50</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">累积机械能 L4<small>默认 100 kJ · 范围 20–400</small></div>
+                <input type="range" id="sldCumEngL4" min="20" max="400" step="10" value="100">
+                <div class="set-val" id="sldCumEngL4V">100</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">ΔP 超阈 AUC L3<small>默认 1500 cmH₂O·min · 范围 200–5000</small></div>
+                <input type="range" id="sldCumDpL3" min="200" max="5000" step="100" value="1500">
+                <div class="set-val" id="sldCumDpL3V">1500</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">ΔP 超阈 AUC L4<small>默认 3000 cmH₂O·min · 范围 500–10000</small></div>
+                <input type="range" id="sldCumDpL4" min="500" max="10000" step="200" value="3000">
+                <div class="set-val" id="sldCumDpL4V">3000</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">MP 超阈 AUC L3<small>默认 1.5 kJ · 范围 0.5–10</small></div>
+                <input type="range" id="sldCumMpL3" min="0.5" max="10" step="0.5" value="1.5">
+                <div class="set-val" id="sldCumMpL3V">1.5</div>
+              </div>
+              <div class="set-row">
+                <div class="lab">MP 超阈 AUC L4<small>默认 3.0 kJ · 范围 1–20</small></div>
+                <input type="range" id="sldCumMpL4" min="1" max="20" step="1" value="3">
+                <div class="set-val" id="sldCumMpL4V">3.0</div>
+              </div>
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+                <button class="btn" onclick="resetCumTh()">恢复默认</button>
+                <button class="btn pri" onclick="askSaveCumTh()">保存累积阈值</button>
               </div>
             </div>
             <div class="card">
@@ -491,6 +545,10 @@ var N = 0;            // data.length
 var changePts = [];   // CUSUM change points
 var alerts = [];      // alert list
 var TH = { dp:15.0, mp:17.0 };
+// 累积暴露阈值（默认随后端下发，可在「设置」中调整，待临床确认）
+var CUM = { energyL3:50, energyL4:100, dpAucL3:1500, dpAucL4:3000, mpAucL3:1.5, mpAucL4:3.0 };
+var CUM_DEFAULT = Object.assign({}, CUM);
+var CUM_SEEDED = false;
 var curWin = {dp:1440, mp:1440};
 var ws = null;
 var ovData = null;
@@ -511,6 +569,41 @@ function riskOf(dp, mp){
   return 0;
 }
 var RISK_C=['#22C55E','#EAB308','#F97316','#EF4444'];
+
+// ==================== Risk Label ====================
+function riskLabel(r){
+  return ['L1 正常','L2 关注','L3 警告','L4 危险'][Math.max(0,Math.min(3,(r||1)-1))] || 'L1 正常';
+}
+
+// ==================== Cumulative Exposure ====================
+// 累积维度风险：累积机械能(kJ) / MP 超阈 AUC(kJ) / ΔP 超阈 AUC(cmH2O·min) 越过 L3/L4
+function evalCumulative(cum){
+  if(!cum) return 1;
+  var e = cum.energy_kj != null ? cum.energy_kj : (cum.energy_j||0)/1000;
+  var m = cum.mp_auc_kj != null ? cum.mp_auc_kj : (cum.mp_auc_j||0)/1000;
+  var d = cum.dp_auc || 0;
+  if(e>=CUM.energyL4 || m>=CUM.mpAucL4 || d>=CUM.dpAucL4) return 4;
+  if(e>=CUM.energyL3 || m>=CUM.mpAucL3 || d>=CUM.dpAucL3) return 3;
+  return 1;
+}
+function setCumCell(id, val, unit, l3, l4, dec){
+  var el=document.getElementById(id); if(!el) return;
+  el.innerHTML = (val==null ? '--' : (+val).toFixed(dec||0)) + ' <small>'+unit+'</small>';
+  var col = 'var(--t-1)';
+  if(val!=null){ if(val>=l4) col='var(--dan)'; else if(val>=l3) col='var(--warn)'; else col='var(--ok)'; }
+  el.style.color = col;
+}
+function fillCumCard(cum){
+  if(!cum) return;
+  setCumCell('cumEnergy', cum.energy_kj!=null?cum.energy_kj:(cum.energy_j||0)/1000, 'kJ', CUM.energyL3, CUM.energyL4, 1);
+  setCumCell('cumDpAuc', cum.dp_auc, 'cmH₂O·min', CUM.dpAucL3, CUM.dpAucL4, 0);
+  setCumCell('cumMpAuc', cum.mp_auc_kj!=null?cum.mp_auc_kj:(cum.mp_auc_j||0)/1000, 'kJ', CUM.mpAucL3, CUM.mpAucL4, 2);
+  document.getElementById('cumVentDur').innerHTML = fmtDur(cum.vent_duration_min||0);
+  var r = evalCumulative(cum);
+  var cre = document.getElementById('cumRiskText');
+  cre.textContent = riskLabel(r);
+  cre.style.color = ['var(--ok)','var(--watch)','var(--warn)','var(--dan)'][r-1];
+}
 
 // ==================== SVG Helpers ====================
 var SVGNS='http://www.w3.org/2000/svg';
@@ -731,12 +824,12 @@ function segList(containerId, win, key, validKey, T, unit, color){
 // ==================== Alert Rendering ====================
 function renderAlerts(){
   var list=document.getElementById('alList'); var h='';
-  var filtered=alerts.filter(function(a){ return alFilter==='all'||(alFilter==='act'?a.act:!a.act); });
+  var filtered=alerts.filter(function(a){ return alFilter==='all'||(alFilter==='act'?a.act:!a.act)||(alFilter==='cum'&&a.cat==='cumulative'); });
   if(!filtered.length){ list.innerHTML='<div class="card" style="text-align:center;color:var(--t-3);">当前无预警事件（保护性通气）</div>'; document.getElementById('alBadge').textContent='0'; return; }
   filtered.forEach(function(a){
     h+='<div class="al-item">'
       +'<span class="lv l'+a.lv+'">'+a.lvN+'</span>'
-      +'<div><div class="msg">'+a.msg+'</div><div class="meta">'+a.meta+(a.time?' · '+a.time:'')+(a.ack?' · '+a.ack:'')+'</div></div>'
+      +'<div><div class="msg">'+(a.cat==='cumulative'?'<span class="catpill">累积</span>':'')+a.msg+'</div><div class="meta">'+a.meta+(a.time?' · '+a.time:'')+(a.ack?' · '+a.ack:'')+'</div></div>'
       +'<div class="st">'+(a.act? '<span style="color:var(--dan);font-weight:bold;">● 活动中</span><button class="btn ghost-warn" onclick="ackAlert(this)">确认</button>' : '<span style="color:var(--t-3)">已恢复</span>')+'</div></div>';
   });
   list.innerHTML=h;
@@ -818,7 +911,62 @@ function askSaveTh(){
   document.getElementById('modalTxt').innerHTML='ΔP 阈值：<b>'+TH.dp.toFixed(1)+' -> '+(+sldDp.value).toFixed(1)+' cmH₂O</b><br>MP 阈值：<b>'+TH.mp.toFixed(1)+' -> '+(+sldMp.value).toFixed(1)+' J/min</b><br><br>阈值变更将影响风险分级与预警判定，并记入审计日志。';
   document.getElementById('modal').classList.add('on');
 }
+
+// ==================== Cumulative Threshold Settings ====================
+var pendingCumSave = false;
+function nowStamp(){
+  var n=new Date();
+  return n.getFullYear()+'-'+('0'+(n.getMonth()+1)).slice(-2)+'-'+('0'+n.getDate()).slice(-2)+' '+('0'+n.getHours()).slice(-2)+':'+('0'+n.getMinutes()).slice(-2);
+}
+function syncCumSliders(){
+  var map = {
+    sldCumEngL3:['sldCumEngL3V', CUM.energyL3, 0], sldCumEngL4:['sldCumEngL4V', CUM.energyL4, 0],
+    sldCumDpL3:['sldCumDpL3V', CUM.dpAucL3, 0], sldCumDpL4:['sldCumDpL4V', CUM.dpAucL4, 0],
+    sldCumMpL3:['sldCumMpL3V', CUM.mpAucL3, 1], sldCumMpL4:['sldCumMpL4V', CUM.mpAucL4, 1]
+  };
+  for(var id in map){
+    var el=document.getElementById(id); if(!el) continue;
+    el.value = map[id][1];
+    document.getElementById(map[id][0]).textContent = (+map[id][1]).toFixed(map[id][2]);
+  }
+}
+['sldCumEngL3','sldCumEngL4','sldCumDpL3','sldCumDpL4','sldCumMpL3','sldCumMpL4'].forEach(function(id){
+  var el=document.getElementById(id); if(!el) return;
+  el.oninput=function(){
+    var v=+this.value;
+    if(id==='sldCumEngL3') CUM.energyL3=v;
+    else if(id==='sldCumEngL4') CUM.energyL4=v;
+    else if(id==='sldCumDpL3') CUM.dpAucL3=v;
+    else if(id==='sldCumDpL4') CUM.dpAucL4=v;
+    else if(id==='sldCumMpL3') CUM.mpAucL3=v;
+    else if(id==='sldCumMpL4') CUM.mpAucL4=v;
+    var vEl=document.getElementById(id+'V'); if(vEl) vEl.textContent = v.toFixed(id.indexOf('Mp')>=0?1:0);
+    if(ovData) updateOverviewUI(ovData);
+  };
+});
+function resetCumTh(){
+  CUM = Object.assign({}, CUM_DEFAULT);
+  syncCumSliders();
+  if(ovData) updateOverviewUI(ovData);
+  toast('已恢复累积阈值默认值（未保存）');
+}
+function askSaveCumTh(){
+  document.getElementById('modalTxt').innerHTML=
+    '累积机械能 L3/L4：<b>'+CUM.energyL3+' / '+CUM.energyL4+' kJ</b><br>'+
+    'ΔP 超阈 AUC L3/L4：<b>'+CUM.dpAucL3+' / '+CUM.dpAucL4+' cmH₂O·min</b><br>'+
+    'MP 超阈 AUC L3/L4：<b>'+CUM.mpAucL3+' / '+CUM.mpAucL4+' kJ</b><br><br>'+
+    '⚠ 累积暴露阈值尚待临床确认；变更将影响累积维度评级与预警，并记入审计日志。';
+  document.getElementById('modal').classList.add('on');
+  pendingCumSave = true;
+}
 document.getElementById('modalOk').onclick=function(){
+  if(pendingCumSave){
+    pendingCumSave=false;
+    var tr=document.getElementById('auditBody');
+    tr.innerHTML='<tr><td>'+nowStamp()+'</td><td>操作员</td><td>累积暴露阈值</td><td>默认</td><td><b>'+CUM.energyL3+'/'+CUM.energyL4+' kJ · '+CUM.dpAucL3+'/'+CUM.dpAucL4+' · '+CUM.mpAucL3+'/'+CUM.mpAucL4+' kJ</b></td><td>个体化调整（待临床确认）</td></tr>'+tr.innerHTML;
+    closeModal(); if(ovData) updateOverviewUI(ovData); toast('累积阈值已更新，总览已重新计算');
+    return;
+  }
   TH.dp=+sldDp.value; TH.mp=+sldMp.value;
   var tr=document.getElementById('auditBody');
   var now=new Date();
@@ -907,42 +1055,62 @@ async function fetchOverview(){
 
 function updateOverviewUI(d){
   if(!d || d.error) return;
+  // 累积阈值种子（首次从后端下发；之后以「设置」中的 CUM 为准）
+  if(!CUM_SEEDED && d.cumulative && d.cumulative.thresholds){
+    var t = d.cumulative.thresholds;
+    CUM = { energyL3:t.energy_l3_kj, energyL4:t.energy_l4_kj, dpAucL3:t.dp_auc_l3, dpAucL4:t.dp_auc_l4, mpAucL3:t.mp_auc_l3_kj, mpAucL4:t.mp_auc_l4_kj };
+    CUM_DEFAULT = Object.assign({}, CUM);
+    CUM_SEEDED = true;
+    syncCumSliders();
+  }
+  // 双维度合并风险：max(后端合并风险, 前端按当前 CUM 计算的累积维度风险)
+  var cumRisk = evalCumulative(d.cumulative);
+  var mergedRisk = Math.max((d.risk_level||1), cumRisk);
+
   // Rating band
   var band = document.querySelector('.rating-band');
   if(band){
-    var lvClass = Math.min((d.risk_level||1) - 1, 3);  // 后端1~4 → CSS lv-0~lv-3
+    var lvClass = Math.min(mergedRisk - 1, 3);
     band.className = 'rating-band lv-' + lvClass;
     var lvEl = band.querySelector('.lv');
-    if(lvEl) lvEl.textContent = 'L' + (d.risk_level||0);
+    if(lvEl) lvEl.textContent = 'L' + mergedRisk;
     var ttlEl = band.querySelector('.ttl');
-    if(ttlEl) ttlEl.textContent = d.risk_label || '正常';
+    if(ttlEl) ttlEl.textContent = riskLabel(mergedRisk);
     var subEl = band.querySelector('.sub');
     if(subEl){
       var subText = '';
-      if((d.risk_level||0) <= 1) subText = '保护性通气，ΔP 与 MP 均在安全范围';
-      else if((d.risk_level||0) === 2) subText = '关注：接近阈值上限，建议评估参数';
-      else subText = '存在超阈风险，建议尽快调整通气参数';
+      if(mergedRisk <= 1) subText = '保护性通气，ΔP 与 MP 单值及累积暴露均在安全范围';
+      else if(mergedRisk === 2) subText = '关注：接近阈值上限或累积暴露偏低，建议评估参数';
+      else subText = (cumRisk>=3 ? '累积暴露越限' : '单值超阈') + '，建议尽快调整通气参数';
       subEl.textContent = subText;
     }
     var pillsEl = band.querySelector('.pills');
     if(pillsEl){
-      var overCnt = 0;
-      if(d.dp && d.dp.over_pct > 0) overCnt++;
-      if(d.mp && d.mp.over_pct > 0) overCnt++;
-      pillsEl.innerHTML = '<span>越限 <b>'+overCnt+'</b></span><span>安全 <b>'+(2-overCnt)+'</b></span>';
+      var instOver = 0;
+      if(d.dp && d.dp.current != null && d.dp.current >= d.dp.threshold) instOver++;
+      if(d.mp && d.mp.current != null && d.mp.current >= d.mp.threshold) instOver++;
+      pillsEl.innerHTML = '<span>单值越限 <b>'+instOver+'</b></span><span>累积越限 <b>'+(cumRisk>=3?1:0)+'</b></span>';
     }
   }
-  // Alarm bar
+  // Alarm bar（区分单值越限 / 累积暴露越限）
   var alarmBar = document.querySelector('.alarm');
   if(alarmBar){
     var alarmText = alarmBar.querySelector('.grow');
-    if((d.risk_level||0) >= 2){
+    var dtOver = d.dp && d.dp.current != null && d.dp.current >= d.dp.threshold;
+    var mtOver = d.mp && d.mp.current != null && d.mp.current >= d.mp.threshold;
+    if(mergedRisk >= 2){
       alarmBar.classList.remove('ok');
-      var msg = '';
-      if(d.dp && d.dp.current >= d.dp.threshold) msg += 'ΔP 超限 ';
-      if(d.mp && d.mp.current >= d.mp.threshold) msg += 'MP 超限 ';
-      msg += '· ΔP '+(d.dp? d.dp.current:0).toFixed(1)+'/'+(d.dp? d.dp.threshold:15)+' · MP '+(d.mp? d.mp.current:0).toFixed(2)+'/'+(d.mp? d.mp.threshold:17);
-      if(alarmText) alarmText.textContent = msg;
+      var reasons = [];
+      if(dtOver) reasons.push('ΔP 单值超限 '+d.dp.current.toFixed(1)+'/'+d.dp.threshold);
+      if(mtOver) reasons.push('MP 单值超限 '+d.mp.current.toFixed(2)+'/'+d.mp.threshold);
+      if(cumRisk >= 3 && d.cumulative){
+        var cs = [];
+        if(d.cumulative.energy_kj >= CUM.energyL3) cs.push('累积机械能 '+d.cumulative.energy_kj.toFixed(1)+'kJ');
+        if(d.cumulative.dp_auc >= CUM.dpAucL3) cs.push('ΔP累积AUC '+d.cumulative.dp_auc.toFixed(0));
+        if(d.cumulative.mp_auc_kj >= CUM.mpAucL3) cs.push('MP累积AUC '+d.cumulative.mp_auc_kj.toFixed(2)+'kJ');
+        if(cs.length) reasons.push('累积暴露越限（'+cs.join('、')+'）');
+      }
+      if(alarmText) alarmText.textContent = reasons.join(' · ');
     } else {
       alarmBar.classList.add('ok');
       if(alarmText) alarmText.textContent = '系统正常 · 无活动预警';
@@ -952,13 +1120,15 @@ function updateOverviewUI(d){
   var chip = document.querySelector('.riskchip');
   if(chip){
     var chipSpans = chip.querySelectorAll('span');
-    if(chipSpans[1]) chipSpans[1].textContent = d.risk_label || '正常';
-    if((d.risk_level||0) >= 2){ chip.classList.remove('ok'); chip.style.background='var(--dan)'; }
+    if(chipSpans[1]) chipSpans[1].textContent = riskLabel(mergedRisk);
+    if(mergedRisk >= 2){ chip.classList.remove('ok'); chip.style.background='var(--dan)'; }
     else { chip.classList.add('ok'); chip.style.background='var(--ok)'; }
   }
   // Vent duration
   var ventEl = document.getElementById('ventdur');
   if(ventEl && d.cumulative) ventEl.textContent = fmtDur(d.cumulative.vent_duration_min || 0);
+  // Cumulative exposure card
+  if(d.cumulative) fillCumCard(d.cumulative);
   // Work mode
   var wmEl = document.getElementById('workmode');
   if(wmEl && d.work_mode) wmEl.textContent = d.work_mode;
@@ -1015,6 +1185,7 @@ async function fetchAlertsData(){
         lvN: a.risk_label || ('L'+(a.risk_level||2)),
         msg: a.message || a.risk_label || '风险提示',
         meta: a.detail || '',
+        cat: a.category || 'threshold',
         time: timeStr,
         act: a.active !== false,
         ack: a.acknowledged_by || null
