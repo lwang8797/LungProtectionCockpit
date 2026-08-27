@@ -406,8 +406,10 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
 
     start_ts = latest_ts - int(hours * 3600 * 1000)
 
-    # 获取当前通气模式（work_mode 集合仅在变化时写入）
-    work_mode = get_current_work_mode(db, device_id, latest_ts)
+    # 获取当前通气模式（work_mode 集合仅在模式切换时写入，全局最新记录即当前模式）。
+    # 注意：不能以聚合分钟 latest_ts 为锚点——模式切换时间戳可能晚于最新聚合分钟，
+    # 用 at_ts 过滤会漏掉最新切换、回退到旧模式（实测 PCV 实为 SIMV-PC）。
+    work_mode = get_current_work_mode(db, device_id)
 
     agg_docs = list(db[COLL_1MIN].find(
         {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts}},
