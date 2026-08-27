@@ -12,7 +12,7 @@ REST 端点:
   GET  /api/metrics/1min       - 1分钟聚合数据
 
 WebSocket:
-  WS   /ws                     - 实时推送总览数据（每5秒）
+  WS   /ws                     - 实时推送总览数据（每2秒，含批次到达即算的实时当前值）
 
 静态:
   GET  /                       - 前端驾驶舱 HTML
@@ -42,8 +42,8 @@ from .config import (
     CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH,
     CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
-from .collector import get_db, get_time_range, collect_raw, get_current_work_mode
-from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points
+from .collector import get_db, get_time_range, collect_raw, get_current_work_mode, get_latest_raw_batch, to_float, PARAM_MAP
+from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points, classify_risk
 
 logger = logging.getLogger("lung_cockpit.api")
 
@@ -83,6 +83,24 @@ def get_database():
 
 DP_VALID_FLOOR = 3.0    # cmH2O，低于此视为待机/过渡脏值（如末分钟 DrivePress 跳变 2.0）
 MP_VALID_FLOOR = 0.5    # J/min
+
+
+def _clean_nan(obj):
+    """递归把 float nan/±inf 变成 None，确保 JSON 严格合法。
+
+    Starlette 的 JSONResponse 用 allow_nan=False 序列化，任何 NaN/Inf 都会 500。
+    metrics_1min 中待机/缺参分钟会存 NaN（np.nan is not None 为 True，会漏过
+    `is not None` 过滤），故在出口统一清洗。
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _clean_nan(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_clean_nan(v) for v in obj]
+    return obj
 
 
 def get_latest_minute_ts(db, device_id: str = DEVICE_ID) -> int:
@@ -177,6 +195,56 @@ def _riskmap_from_raw(db, device_id, start_ts, latest_ts, points):
         step = len(use_rows) // points
         use_rows = use_rows[::step][:points]
     return build_risk_map_points(use_rows)
+
+
+# ───────────────────────── 实时当前值（方案A） ─────────────────────────
+# 设备上报稀疏（每数分钟一批），且 1 分钟聚合要等「下一分钟关门」才写；
+# 为让仪表盘「设备一上报即秒级刷新」，这里直接从最新原始批次即时算 ΔP/MP/风险，
+# 不依赖 metrics_1min。查询走 [deviceId,timeStamp] 索引，毫秒级、不扫全表。
+
+def compute_live_current(db, device_id: str = DEVICE_ID) -> dict:
+    """从最新原始批次即时计算当前 ΔP/MP/风险。
+
+    返回 {valid, ts, dt, dp, mp, risk_level, risk_label, age_seconds}。
+    valid=False 时（最新批次为待机/缺参）前端保留聚合值。
+    """
+    raw = get_latest_raw_batch(db, device_id)
+    if not raw:
+        return {"valid": False}
+    row = {}
+    for doc in raw:
+        pid = doc.get("paramId")
+        pname = PARAM_MAP.get(pid)
+        if not pname:
+            continue
+        row[pname] = to_float(doc.get("value"))
+    if not row:
+        return {"valid": False}
+    row["ts"] = int(raw[0]["timeStamp"])
+    enrich_rows([row])
+    dp = row.get("dP", float("nan"))
+    mp = row.get("MP", float("nan"))
+    if (math.isnan(dp) or dp <= 0) or math.isnan(mp):
+        return {
+            "valid": False,
+            "ts": row["ts"],
+            "dt": datetime.fromtimestamp(row["ts"] / 1000, tz=timezone.utc).isoformat(),
+        }
+    dp_over = dp > DP_THRESHOLD
+    mp_over = mp > MP_THRESHOLD
+    over_pct = 100.0 if (dp_over or mp_over) else 0.0
+    risk = classify_risk(dp, over_pct, mp, over_pct)
+    age = int(datetime.now(timezone.utc).timestamp() - row["ts"] / 1000.0)
+    return {
+        "valid": True,
+        "ts": row["ts"],
+        "dt": datetime.fromtimestamp(row["ts"] / 1000, tz=timezone.utc).isoformat(),
+        "dp": round(dp, 1),
+        "mp": round(mp, 2),
+        "risk_level": risk,
+        "risk_label": RISK_LABELS.get(risk, "L1 正常"),
+        "age_seconds": age,
+    }
 
 
 # ════════════════════ WebSocket 连接管理器 ════════════════════
@@ -343,7 +411,7 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "cum_risk": cum_risk,
         }
 
-        return {
+        result = {
             "device": device_id,
             "source": "metrics_1min",
             "work_mode": work_mode,
@@ -393,7 +461,7 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         "cum_risk": cum_risk,
     }
 
-    return {
+    result = {
         "device": device_id,
         "source": "realtime",
         "work_mode": work_mode,
@@ -420,10 +488,18 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         "total_minutes": int(len(rows) * 4 / 60),
     }
 
+    # ── 实时当前值（方案A）：原始批次到达即计算，不等聚合分钟关门 ──
+    live = compute_live_current(db, device_id)
+    result["live"] = live
+    if live.get("valid") and result.get("dp") and result.get("mp"):
+        result["dp"]["current"] = live["dp"]
+        result["mp"]["current"] = live["mp"]
+    return _clean_nan(result)
+
 
 async def _ws_push_loop():
-    """后台任务：每5秒向 WebSocket 客户端推送最新总览数据"""
-    logger.info("WebSocket 推送循环启动 (5s 间隔)")
+    """后台任务：每2秒向 WebSocket 客户端推送最新总览数据（含实时当前值）"""
+    logger.info("WebSocket 推送循环启动 (2s 间隔)")
     while True:
         try:
             if manager.active:
@@ -434,7 +510,7 @@ async def _ws_push_loop():
                     await manager.broadcast({"type": "overview", "data": data})
         except Exception as e:
             logger.error(f"WS push 异常: {e}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
 
 
 @app.on_event("startup")

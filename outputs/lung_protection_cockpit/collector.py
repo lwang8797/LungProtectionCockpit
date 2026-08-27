@@ -157,6 +157,26 @@ def collect_minute_raw(db, device_id: str, minute_start_ts: int) -> list:
     )
 
 
+def get_latest_raw_batch(db, device_id: str = DEVICE_ID) -> list:
+    """
+    取设备最新一条时间戳对应的全部原始参数文档（一个上报批次）。
+
+    用于「批次到达即推送」的实时当前值：依赖 [deviceId, timeStamp] 索引，
+    仅一次 find_one（定位最新 ts）+ 一次 find（同 ts 的 ~16 个参数），
+    O(16)，毫秒级，不触碰数百万文档的 measure_param 全表。
+    """
+    coll = db[COLL_RAW]
+    newest = coll.find_one({"deviceId": device_id}, sort=[("timeStamp", -1)])
+    if not newest:
+        return []
+    ts = int(newest["timeStamp"])
+    docs = list(coll.find(
+        {"deviceId": device_id, "timeStamp": ts},
+        {"_id": 0, "paramId": 1, "value": 1, "timeStamp": 1, "unitName": 1, "name": 1},
+    ))
+    return docs
+
+
 def get_current_work_mode(db, device_id: str = DEVICE_ID, at_ts: int = None) -> str:
     """
     获取指定时间点最近的通气模式。

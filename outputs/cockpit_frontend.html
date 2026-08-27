@@ -271,6 +271,12 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           </div>
         </div>
 
+        <!-- 实时新鲜度条：设备一上报即秒级刷新（方案A） -->
+        <div class="live-fresh" id="liveFresh" style="margin:-4px 0 14px;font-size:12.5px;color:var(--t-3);display:flex;gap:12px;align-items:center;">
+          <span id="liveDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--t-3);box-shadow:0 0 0 3px rgba(127,127,127,.15);"></span>
+          <span id="liveText">实时链路初始化中…</span>
+        </div>
+
         <!-- 累积暴露卡片：双维度之「累积维度」 -->
         <div class="card" style="margin-bottom:14px;">
           <h3>累积暴露（通气全程）
@@ -1257,6 +1263,27 @@ function updateOverviewUI(d){
   // Status bar
   var statusEls = document.querySelectorAll('#statusbar span');
   if(statusEls[2]) statusEls[2].textContent = '计算引擎：Python · 实时计算';
+  // 实时新鲜度（方案A：批次到达即推送，显示设备最新上报时间与延迟）
+  var lf = d.live;
+  var liveText = document.getElementById('liveText');
+  var liveDot = document.getElementById('liveDot');
+  if(lf && liveText){
+    if(lf.valid){
+      var age = (lf.age_seconds != null) ? lf.age_seconds : 0;
+      var dt = new Date(lf.ts);
+      var hh = ('0'+dt.getUTCHours()).slice(-2);
+      var mm = ('0'+dt.getUTCMinutes()).slice(-2);
+      var ss = ('0'+dt.getUTCSeconds()).slice(-2);
+      liveText.textContent = '设备最新上报 '+hh+':'+mm+':'+ss+' UTC · '+age+' 秒前 · 实时';
+      if(liveDot){
+        liveDot.style.background = age < 120 ? 'var(--ok)' : (age < 300 ? 'var(--watch)' : 'var(--warn)');
+        liveDot.style.boxShadow = '0 0 0 3px ' + (age < 120 ? 'rgba(34,197,94,.18)' : (age < 300 ? 'rgba(245,158,11,.18)' : 'rgba(239,68,68,.18)'));
+      }
+    } else {
+      liveText.textContent = '暂无有效实时批次（设备可能待机/暂停上报）';
+      if(liveDot){ liveDot.style.background = 'var(--t-3)'; liveDot.style.boxShadow = '0 0 0 3px rgba(127,127,127,.15)'; }
+    }
+  }
   // Update last data point from overview
   if(N > 0 && d.dp && d.mp){
     data[N-1].dp = d.dp.current || data[N-1].dp;
