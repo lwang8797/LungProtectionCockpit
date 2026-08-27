@@ -49,11 +49,15 @@ hr{border:none;border-top:1px solid var(--border);margin:32px 0}
 
 <h1>实施方案 — 肺保护驾驶舱（基于真实数据）</h1>
 <p style="color:var(--text2)">智能呼吸机 ΔP/MP 累积暴露功能 · 测试环境真实数据验证版</p>
-<p style="color:var(--text3);font-size:12px">生成时间：2026-08-26 | 数据源：192.168.1.100 MongoDB data-services-prod</p>
+<p style="color:var(--text3);font-size:12px">生成时间：2026-08-27（v2，依据当前代码库状态更新）| 数据源：192.168.1.100 MongoDB data-services-prod</p>
 
 <div class="success">
-<strong>验证结论：数据采集与计算管道完全打通。</strong><br>
-从 MongoDB <code>measure_param</code> 集合成功采集 24,564 条原始参数记录，透视对齐为 2,047 个时间点，计算 ΔP 和 MP 累积暴露指标全部正常输出。
+<strong>验证结论（v2）：端到端系统 M1–M5 已全部实现并具备运行条件。</strong><br>
+已打通「MongoDB 采集 → ΔP/MP 计算 → 1分钟聚合（含累积量滚动）→ FastAPI REST/WebSocket → 单文件前端驾驶舱」全链路；后端已能输出 ΔP/MP 累积暴露指标（累积 AUC、累积机械能、通气时长）。
+</div>
+
+<div class="warn" style="margin-top:12px">
+<strong>已知缺口（本次核查发现，详见第 9 节）：</strong> 总览页（前端）的 ΔP/MP 风险评级、报警条幅、仪表盘徽标、24h 风险时间带，<b>目前均基于「单值阈值」判定（当前值/最大值 vs 阈值、超阈占比），并未使用累积暴露指标触发报警</b>。后端 <code>classify_risk</code> 与 <code>_check_and_alert</code> 同样只用单值阈值。项目定位（ΔP/MP 累积暴露）与总览页实际报警逻辑尚不一致——<b>累积暴露报警尚未接入总览</b>。
 </div>
 
 <div class="metric">
@@ -202,10 +206,9 @@ mp = 0.098 * rr * vt_l * (pip - 0.5 * dp)</code></pre>
 ├── config.py            # MongoDB 连接、阈值、paramId 映射
 ├── collector.py         # 数据采集：按时间窗口查询 measure_param
 ├── calculator.py        # 计算引擎：ΔP/MP + 累积暴露指标
-├── aggregator.py        # 1分钟聚合：写入 metrics_1min 集合
-├── api.py               # FastAPI 路由：REST + WebSocket
-├── realtime.py          # 实时推送：监听新数据 → 计算 → WS推送
-└── main.py              # 启动入口</code></pre>
+├── aggregator.py        # 1分钟聚合：写入 metrics_1min 集合（累积量滚动 + 阈值预警）
+├── api.py               # FastAPI 路由：REST + WebSocket（实时推送在 api.py 内，无独立 realtime.py）
+└── main.py              # 启动入口（serve / backfill / aggregate / all）</code></pre>
 
 <h3>3.3 数据采集流程</h3>
 <pre><code># 1. 按索引查询（利用 deviceId_1_timeStamp_1 索引）
@@ -229,12 +232,13 @@ vent_rows = [r for r in rows.values() if r.get("dP", 0) > 0]</code></pre>
 <h3>3.4 REST API 设计</h3>
 <table>
 <tr><th>端点</th><th>方法</th><th>参数</th><th>返回</th></tr>
-<tr><td><code>/api/overview</code></td><td>GET</td><td>deviceId, hours=2</td><td>总览页数据（评级+仪表盘）</td></tr>
-<tr><td><code>/api/dp/trend</code></td><td>GET</td><td>deviceId, start, end</td><td>ΔP 时间序列</td></tr>
-<tr><td><code>/api/mp/trend</code></td><td>GET</td><td>deviceId, start, end</td><td>MP 时间序列</td></tr>
-<tr><td><code>/api/risk-map</code></td><td>GET</td><td>deviceId, hours=2</td><td>二维风险图数据</td></tr>
+<tr><td><code>/api/overview</code></td><td>GET</td><td>deviceId, hours=2</td><td>总览页数据（评级+仪表盘+<b>cumulative</b> 累积量）</td></tr>
+<tr><td><code>/api/dp/trend</code></td><td>GET</td><td>deviceId, hours, points</td><td>ΔP 时间序列（含阈值）</td></tr>
+<tr><td><code>/api/mp/trend</code></td><td>GET</td><td>deviceId, hours, points</td><td>MP 时间序列（含阈值）</td></tr>
+<tr><td><code>/api/risk-map</code></td><td>GET</td><td>deviceId, hours, points</td><td>二维风险图散点数据</td></tr>
 <tr><td><code>/api/alerts</code></td><td>GET</td><td>deviceId, hours=24</td><td>预警事件列表</td></tr>
-<tr><td><code>/ws/realtime</code></td><td>WS</td><td>deviceId</td><td>实时 ΔP/MP 推送（每4秒）</td></tr>
+<tr><td><code>/api/metrics/1min</code></td><td>GET</td><td>deviceId, hours, limit</td><td>1分钟聚合明细</td></tr>
+<tr><td><code>/ws</code></td><td>WS</td><td>—</td><td>实时总览推送（每5秒，<b>非 /ws/realtime</b>）</td></tr>
 </table>
 
 <hr>
@@ -303,10 +307,10 @@ db.metrics_1min.createIndex({ deviceId: 1, minute: -1 })</code></pre>
 <table>
 <tr><th>阶段</th><th>内容</th><th>产出</th><th>状态</th></tr>
 <tr><td><b>M1</b><br>数据采集+计算</td><td>连接MongoDB、采集measure_param、计算ΔP/MP和累积暴露</td><td>collect_real_data.py<br>real_data_summary.json</td><td><span class="badge b-green">已完成</span></td></tr>
-<tr><td><b>M2</b><br>聚合服务</td><td>1分钟定时聚合、写入metrics_1min、累积量滚动</td><td>aggregator.py</td><td><span class="badge b-yellow">待开发</span></td></tr>
-<tr><td><b>M3</b><br>REST API</td><td>FastAPI路由：总览/趋势/风险图/预警</td><td>api.py</td><td><span class="badge b-yellow">待开发</span></td></tr>
-<tr><td><b>M4</b><br>实时推送</td><td>WebSocket监听新数据→计算→推送前端</td><td>realtime.py</td><td><span class="badge b-yellow">待开发</span></td></tr>
-<tr><td><b>M5</b><br>前端集成</td><td>原型HTML对接真实API、实盘数据展示</td><td>驾驶舱WebUI</td><td><span class="badge b-yellow">待开发</span></td></tr>
+<tr><td><b>M2</b><br>聚合服务</td><td>1分钟定时聚合、写入metrics_1min、累积量滚动、阈值预警</td><td>aggregator.py</td><td><span class="badge b-green">已完成</span></td></tr>
+<tr><td><b>M3</b><br>REST API</td><td>FastAPI路由：总览/趋势/风险图/预警/1min</td><td>api.py</td><td><span class="badge b-green">已完成</span></td></tr>
+<tr><td><b>M4</b><br>实时推送</td><td>WebSocket 实时推送总览（在 api.py 内实现，未单列 realtime.py）</td><td>api.py (/ws)</td><td><span class="badge b-green">已完成</span></td></tr>
+<tr><td><b>M5</b><br>前端集成</td><td>单文件驾驶舱 WebUI 对接真实 API（总览/趋势/风险图/预警/设置）</td><td>cockpit_frontend.html</td><td><span class="badge b-green">已完成</span></td></tr>
 </table>
 
 <h3>5.1 M1 已完成成果</h3>
@@ -411,8 +415,88 @@ WantedBy=multi-user.target</code></pre>
 <li>无 hover 交互，全部改为 tap</li>
 </ul>
 
+<h2>8. 当前状态与已知缺口（2026-08-27 核查）</h2>
+
+<h3>8.1 已实现（代码库现状）</h3>
+<table>
+<tr><th>模块</th><th>文件</th><th>已实现能力</th></tr>
+<tr><td>采集</td><td>collector.py</td><td>按 deviceId+timeStamp 查询 measure_param，14 参数透视对齐，待机(ΔP≤0)过滤</td></tr>
+<tr><td>计算</td><td>calculator.py</td><td>ΔP（直读优先 / Pplat−PEEP 备用）、MP（Gattinoni 公式）、compute_exposure（均值/最大/超阈占比/AUC）、classify_risk L1–L4</td></tr>
+<tr><td>聚合</td><td>aggregator.py</td><td>每分钟聚合写 metrics_1min；<b>累积量滚动</b>：cumulative_dp_auc / cumulative_mp_auc / cumulative_energy / vent_duration_min；阈值预警写 cockpit_alerts</td></tr>
+<tr><td>API</td><td>api.py</td><td>/api/overview（含 cumulative 字段）、/api/dp|mp/trend、/api/risk-map、/api/alerts、/api/metrics/1min、/ws</td></tr>
+<tr><td>前端</td><td>cockpit_frontend.html</td><td>总览/ΔP/MP/风险图/预警/设置 五页；MP 趋势页含「累积机械能曲线」可视化</td></tr>
+</table>
+
+<h3>8.2 缺口：总览页报警仍为「单值阈值」，未用累积暴露</h3>
+<div class="warn">
+<strong>核查结论：用户判断正确。</strong> 总览页的 ΔP/MP 风险判定与报警，目前<b>全部基于单值阈值</b>，累积暴露指标虽已在后端计算并返回，但<b>未参与总览页的报警/评级决策</b>。具体证据（均来自源码）：
+<ul>
+<li><b>风险评级来源</b>：前端 <code>risk_level</code> 直接取后端 <code>classify_risk</code> 结果；该函数在 calculator.py 中仅依据 <code>dp_max</code>/<code>mp_max</code> 是否超阈、以及 <code>over_pct</code>（超阈占比）分级 —— 均为<b>单点/单值</b>维度。</li>
+<li><b>报警条幅/风险芯片</b>：前端 <code>updateOverviewUI</code> 用 <code>d.dp.current &gt;= d.dp.threshold</code>、<code>d.mp.current &gt;= d.mp.threshold</code> 判定「超限」——瞬时单值。</li>
+<li><b>仪表盘徽标</b>：<code>dpVal &gt;= TH.dp</code> 等，单值阈值。</li>
+<li><b>24h 风险时间带</b>：逐点 <code>riskOf(dp,mp)</code>（<code>dp&gt;=TH.dp || mp&gt;=TH.mp</code>），单值。</li>
+<li><b>后端预警</b>：<code>aggregator._check_and_alert</code> 触发条件为 <code>risk_level&gt;=2</code>（单值阈值派生）；消息文案只列「最大/超阈占比」。</li>
+<li><b>累积量去向</b>：后端 <code>cumulative</code> 对象（cumulative_energy_j / dp_auc / mp_auc / vent_duration_min）已随 /api/overview 返回，但前端仅用 <code>vent_duration_min</code> 显示「通气时长」，其余累积指标<b>未用于任何报警或评级</b>；MP 趋势页的「累积机械能曲线」仅为<b>可视化</b>，非报警。</li>
+</ul>
+因此：「ΔP/MP 累积暴露」作为项目定位，在<b>计算与可视化层</b>已落地，但在<b>总览页报警决策层</b>尚未落地。
+</div>
+
+<hr>
+
+<h2>9. 修改规划（待确认）：累积暴露报警接入总览页</h2>
+<div class="note">本节为待确认方案，<b>尚未实施</b>。请确认下列设计要点（尤其 9.4 累积阈值）后再开工。</div>
+
+<h3>9.1 目标</h3>
+<p>让总览页的 ΔP/MP 风险评级与报警，同时反映「瞬时单值阈值」与「累积暴露」两个维度；后端预警区分 <code>threshold</code>（单值越限）与 <code>cumulative</code>（累积暴露越限）两类，使项目定位（ΔP/MP 累积暴露）与总览行为一致。</p>
+
+<h3>9.2 总体设计：双维度、合并风险</h3>
+<table>
+<tr><th>维度</th><th>输入</th><th>判定</th></tr>
+<tr><td>瞬时维度（已有）</td><td>dp_max / mp_max / over_pct</td><td>单值阈值 → L1–L4</td></tr>
+<tr><td>累积维度（新增）</td><td>cumulative_dp_auc / cumulative_mp_auc / cumulative_energy / vent_duration_min</td><td>累积阈值 → L1–L4</td></tr>
+<tr><td><b>合并</b></td><td>—</td><td><code>risk_level = max(瞬时, 累积)</code>（任一维度危险即危险；避免单点尖峰或缓慢侵蚀被漏报）</td></tr>
+</table>
+
+<h3>9.3 改动清单</h3>
+<h4>后端（config.py / calculator.py / aggregator.py / api.py）</h4>
+<ul>
+<li><b>config.py</b>：新增累积暴露阈值常量（见 9.4），与 DP_THRESHOLD/MP_THRESHOLD 并列，均可在设置页调整。</li>
+<li><b>calculator.py</b>：新增 <code>classify_cumulative_risk(cum_dp_auc, cum_mp_auc, cum_energy, vent_min)</code>；在 <code>compute_exposure</code> 返回中补充 <code>cumulative_risk_level</code>；<code>classify_risk</code> 改为返回 <code>max(瞬时, 累积)</code>。</li>
+<li><b>aggregator.py</b>：存储 <code>cumulative_risk_level</code>；<code>_check_and_alert</code> 增加 <code>category</code> 字段（"threshold" | "cumulative"），累积越限时发独立预警，文案如「ΔP 累积 AUC 123 cmH₂O·min 超阈值」；5 分钟去重按 (risk_level, category) 区分。</li>
+<li><b>api.py</b>：<code>/api/overview</code> 的 <code>cumulative</code> 内补充 <code>cumulative_risk_level</code> 与各类 <code>alarm</code> 标志位（如 <code>dp_cum_over</code>、<code>mp_cum_over</code>）。</li>
+</ul>
+<h4>前端（cockpit_frontend.html）</h4>
+<ul>
+<li><b>总览页新增「累积暴露」卡片/指标组</b>：展示 cumulative_dp_auc、cumulative_mp_auc、cumulative_energy、vent_duration_min 及其相对累积阈值的状态色（绿/黄/橙/红）。</li>
+<li><b>风险评级/报警条幅/风险芯片</b>：采用后端合并后的 <code>risk_level</code>（已含累积维度），条幅文案区分「单值越限」「累积暴露越限」。</li>
+<li><b>24h 时间带图例</b>：当前标注「实时值 + 累积暴露指标组合判定」——修正为真实生效（合并风险），或如实改为「实时值 / 累积暴露」。</li>
+<li><b>预警中心</b>：来自 /api/alerts 的累积类预警自动显示，可加筛选标签（单值/累积）。</li>
+<li><b>设置页</b>：新增累积阈值滑动条（与单值阈值同款医师权限 + 二次确认 + 审计）。</li>
+</ul>
+
+<h3>9.4 累积暴露阈值（关键待确认项 ⚠）</h3>
+<div class="warn">
+<b>临床依据说明：</b> 单值阈值（ΔP≥15、MP≥17）有循证支持；但<b>「累积暴露」的报警阈值目前缺乏统一临床标准</b>，需医师确认或采用保守默认。下表为<b>建议默认值（单位时间窗内的累积量）</b>，务必经临床审核：
+<table>
+<tr><th>指标</th><th>窗口</th><th>建议默认值（待确认）</th><th>含义/触发</th></tr>
+<tr><td>cumulative_energy（累积机械能）</td><td>24h</td><td>L3 ≈ 50 kJ、L4 ≈ 100 kJ（示意，待定）</td><td>全天能量负荷；≈ 阈值(17 J/min)持续一天 ≈ 24.5 kJ，2–4 倍作分级参考</td></tr>
+<tr><td>cumulative_mp_auc（MP 超阈 AUC）</td><td>24h</td><td>L3 / L4 阈值待定</td><td>MP 超出 17 的累积量</td></tr>
+<tr><td>cumulative_dp_auc（ΔP 超阈 AUC）</td><td>24h</td><td>L3 / L4 阈值待定</td><td>ΔP 超出 15 的累积量</td></tr>
+</table>
+<b>请确认：</b> (a) 是否采用「双维度合并风险」； (b) 累积阈值使用上述保守默认或您指定的值； (c) 窗口统一 24h 还是按通气时长归一化（如 kJ/24h·vent_h）。
+</div>
+
+<h3>9.5 测试与文档</h3>
+<ul>
+<li>scripts/test_api.py：新增用例——构造高累积场景（如 MP 长期略低于阈值但累积 AUC 超阈），断言后端触发 <code>category="cumulative"</code> 预警且 risk_level 提升。</li>
+<li>更新本实施方案（本节）、README、及设计/需求文档中相关描述，使「累积暴露报警」与实际行为一致。</li>
+<li>回归：单值越限仍正常报警（category="threshold"），两类预警不互相覆盖。</li>
+</ul>
+
+<hr>
+
 <div class="footer">
-<p>肺保护驾驶舱 · 实施方案（基于真实数据） · 2026-08-26</p>
+<p>肺保护驾驶舱 · 实施方案（基于真实数据） · 2026-08-27 v2（据代码库现状更新）</p>
 <p>数据源：MongoDB 192.168.1.100:27017 / data-services-prod.measure_param</p>
 </div>
 
