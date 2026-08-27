@@ -37,6 +37,13 @@ def cmd_serve(args):
     """启动 FastAPI 服务"""
     import uvicorn
     from .api import app
+    from .collector import get_db, ensure_indexes
+
+    # 启动即确保索引（幂等），让 metrics_1min / measure_param 查询走索引
+    try:
+        ensure_indexes(get_db())
+    except Exception as e:
+        logger.warning(f"索引预创建失败（可忽略，查询会变慢）: {e}")
 
     host = os.environ.get("COCKPIT_HOST", "0.0.0.0")
     port = int(os.environ.get("COCKPIT_PORT", "8080"))
@@ -50,10 +57,11 @@ def cmd_serve(args):
 
 def cmd_backfill(args):
     """回填历史聚合数据"""
-    from .collector import get_db
+    from .collector import get_db, ensure_indexes
     from .aggregator import backfill
 
     db = get_db()
+    ensure_indexes(db)
     logger.info(f"开始回填最近 {args.hours} 小时...")
     total = backfill(db, hours=args.hours)
     logger.info(f"回填完成: {total} 分钟已聚合")
@@ -62,24 +70,26 @@ def cmd_backfill(args):
 
 def cmd_aggregate(args):
     """启动聚合守护进程"""
-    from .collector import get_db
+    from .collector import get_db, ensure_indexes
     from .aggregator import run_continuous
 
     db = get_db()
+    ensure_indexes(db)
     run_continuous(db, poll_interval=args.poll)
 
 
 def cmd_all(args):
     """回填 + 启动 API"""
-    from .collector import get_db
+    from .collector import get_db, ensure_indexes
     from .aggregator import backfill
 
     db = get_db()
+    ensure_indexes(db)
     logger.info(f"回填最近 {args.hours} 小时...")
     total = backfill(db, hours=args.hours)
     logger.info(f"回填完成: {total} 分钟已聚合")
 
-    # 启动 API
+    # 启动 API（cmd_serve 内也会再 ensure_indexes，幂等）
     cmd_serve(args)
 
 
@@ -105,7 +115,7 @@ def main():
 
     # all
     p_all = sub.add_parser("all", help="回填 + 启动 API")
-    p_all.add_argument("--hours", type=float, default=2, help="回填小时数（默认2）")
+    p_all.add_argument("--hours", type=float, default=24, help="回填小时数（默认24）")
     p_all.set_defaults(func=cmd_all)
 
     args = parser.parse_args()

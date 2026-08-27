@@ -13,8 +13,8 @@ if not exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-echo [3/3] 启动服务（回填最近 2h + API，端口默认 8080）...
+echo [3/3] 启动服务（回填最近 24h + API，端口默认 8080）...
 set PYTHONPATH=.
-python -m lung_protection_cockpit.main all --hours 2
+python -m lung_protection_cockpit.main all --hours 24
 
 pause

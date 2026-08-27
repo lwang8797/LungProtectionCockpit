@@ -715,8 +715,18 @@ function gaugeLevel(v, th, hi){
   if(v>=th-2) return 1;
   return 0;
 }
+// 量程自适应：让当前值落在量程约 35%~55% 处，阈值清晰可见，避免小值被钉在边缘
+function computeScale(v, th){
+  var val = (v==null || isNaN(v)) ? 0 : +v;
+  var t = (th||0);
+  var hi = Math.max(val*1.6, t*1.3, 12);
+  hi = Math.ceil(hi/5)*5;          // 取整到 5 的倍数，刻度更整齐
+  return [0, hi];
+}
 function drawGauge(svgId, val, th, lo, hi, unit){
   var svg=document.getElementById(svgId); if(!svg) return; svg.innerHTML='';
+  var shownVal = (val==null || isNaN(val)) ? null : val;
+  var needleV = (shownVal==null) ? lo : shownVal;
   var W=svg.clientWidth||300, H=+svg.getAttribute('height');
   var cx=W/2, cy=H-38, r=Math.min(W/2-20, cy-12), sw=Math.max(14, r*0.18);
   function ang(v){ return Math.PI*(1-(Math.max(lo,Math.min(hi,v))-lo)/(hi-lo)); }
@@ -732,14 +742,26 @@ function drawGauge(svgId, val, th, lo, hi, unit){
   svg.appendChild(el('line',{x1:t1[0],y1:t1[1],x2:t2[0],y2:t2[1],stroke:'#F1F4F8','stroke-width':2.5}));
   var anchor = t1[0]>=cx?'start':'end';
   svg.appendChild(txt(t1[0]+(t1[0]>=cx?5:-5), t1[1]-5,'阈值 '+th.toFixed(0),{'font-size':10,fill:'#B7C0CC','text-anchor':anchor}));
-  var lv=gaugeLevel(val,th,hi), nc=RISK_C[lv];
-  var m1=pt(val,r-sw/2-4), m2=pt(val,r+sw/2+2);
+  var lv=gaugeLevel(needleV,th,hi), nc=RISK_C[lv];
+  var m1=pt(needleV,r-sw/2-4), m2=pt(needleV,r+sw/2+2);
   svg.appendChild(el('line',{x1:m1[0],y1:m1[1],x2:m2[0],y2:m2[1],stroke:nc,'stroke-width':9,'stroke-linecap':'round',opacity:.25}));
   svg.appendChild(el('line',{x1:m1[0],y1:m1[1],x2:m2[0],y2:m2[1],stroke:nc,'stroke-width':4,'stroke-linecap':'round'}));
-  svg.appendChild(txt(cx, cy-26, val.toFixed(1), {'font-size':40,'font-weight':800,fill:nc,'text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy-26, shownVal==null?'—':shownVal.toFixed(1), {'font-size':40,'font-weight':800,fill:nc,'text-anchor':'middle'}));
   svg.appendChild(txt(cx, cy-9, unit, {'font-size':11.5,fill:'#7C8694','text-anchor':'middle'}));
   svg.appendChild(txt(cx-r-sw/2, cy+16, lo, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
   svg.appendChild(txt(cx+r+sw/2, cy+16, hi, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
+}
+
+// 总览双仪表盘（自适应量程）：优先用 overview 当前值，回退到趋势末点
+function drawOverviewGauges(){
+  var dpVal = (ovData && ovData.dp && ovData.dp.current!=null) ? ovData.dp.current
+            : (N>0 ? data[N-1].dp : null);
+  var mpVal = (ovData && ovData.mp && ovData.mp.current!=null) ? ovData.mp.current
+            : (N>0 ? data[N-1].mp : null);
+  var dpScale = computeScale(dpVal, TH.dp);
+  var mpScale = computeScale(mpVal, TH.mp);
+  drawGauge('dpGauge', dpVal, TH.dp, dpScale[0], dpScale[1], 'cmH₂O');
+  drawGauge('mpGauge', mpVal, TH.mp, mpScale[0], mpScale[1], 'J/min');
 }
 
 // ==================== Drawing: Risk Band ====================
@@ -898,10 +920,7 @@ function renderMp(win){
   svg.appendChild(txt(W-R,Tp+11,hi.toFixed(1)+' kJ',{'font-size':10,fill:'#A855F7','text-anchor':'end','font-weight':'bold'}));
 }
 function renderAll(){
-  var dpVal = (ovData && ovData.dp && ovData.dp.current!=null) ? ovData.dp.current : (N>0 ? data[N-1].dp : 10);
-  var mpVal = (ovData && ovData.mp && ovData.mp.current!=null) ? ovData.mp.current : (N>0 ? data[N-1].mp : 5);
-  drawGauge('dpGauge', dpVal, TH.dp, 10, 22, 'cmH₂O');
-  drawGauge('mpGauge', mpVal, TH.mp, 8, 28, 'J/min');
+  drawOverviewGauges();
   drawRiskBand();
   drawRiskMap('rmMini',null,420,190,false);
   drawRiskMap('rmBig','rmTip',860,520,true);
@@ -916,9 +935,7 @@ function gotoPage(pg){
   if(pg==='mp') renderMp(curWin.mp);
   if(pg==='rm') drawRiskMap('rmBig','rmTip',860,520,true);
   if(pg==='ov'){
-    var dpVal = (ovData && ovData.dp && ovData.dp.current!=null) ? ovData.dp.current : (N>0 ? data[N-1].dp : 10);
-    var mpVal = (ovData && ovData.mp && ovData.mp.current!=null) ? ovData.mp.current : (N>0 ? data[N-1].mp : 5);
-    drawGauge('dpGauge', dpVal, TH.dp, 10, 22, 'cmH₂O'); drawGauge('mpGauge', mpVal, TH.mp, 8, 28, 'J/min'); drawRiskBand(); drawRiskMap('rmMini',null,420,190,false);
+    drawOverviewGauges(); drawRiskBand(); drawRiskMap('rmMini',null,420,190,false);
   }
 }
 
@@ -1022,6 +1039,11 @@ setInterval(function(){
 // ==================== API: Fetch Trends ====================
 async function fetchTrends(){
   try {
+    // 加载占位：避免页签点开后出现长时间空白（后端现已改读 metrics_1min，秒级返回）
+    ['dpChart','mpChart','rmBig'].forEach(function(id){
+      var s=document.getElementById(id);
+      if(s){ var w=s.clientWidth||300; s.innerHTML='<text x="'+(w/2)+'" y="60" fill="#7C8694" font-size="13" text-anchor="middle">数据加载中…</text>'; }
+    });
     var p1 = fetch(API+'/api/dp/trend?hours=24&points=1440').then(function(r){return r.json();});
     var p2 = fetch(API+'/api/mp/trend?hours=24&points=1440').then(function(r){return r.json();});
     var results = await Promise.all([p1, p2]);
@@ -1067,6 +1089,10 @@ async function fetchTrends(){
     console.log('Trends loaded: '+N+' points, '+changePts.length+' change points');
   } catch(e) {
     console.error('fetchTrends error:', e);
+    ['dpChart','mpChart','rmBig'].forEach(function(id){
+      var s=document.getElementById(id);
+      if(s){ var w=s.clientWidth||300; s.innerHTML='<text x="'+(w/2)+'" y="60" fill="#EF4444" font-size="13" text-anchor="middle">数据加载失败，请刷新</text>'; }
+    });
   }
 }
 
@@ -1169,31 +1195,35 @@ function updateOverviewUI(d){
   if(wmEl && d.work_mode) wmEl.textContent = d.work_mode;
   var snapMode = document.getElementById('snapMode');
   if(snapMode && d.work_mode) snapMode.textContent = d.work_mode;
-  // Gauges
-  var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : 0;
-  var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : 0;
-  drawGauge('dpGauge', dpVal, TH.dp, 10, 22, 'cmH₂O');
-  drawGauge('mpGauge', mpVal, TH.mp, 8, 28, 'J/min');
+  // Gauges（自适应量程：当前值小也不被钉在边缘）
+  var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : null;
+  var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : null;
+  var dpScale = computeScale(dpVal, TH.dp);
+  var mpScale = computeScale(mpVal, TH.mp);
+  drawGauge('dpGauge', dpVal, TH.dp, dpScale[0], dpScale[1], 'cmH₂O');
+  drawGauge('mpGauge', mpVal, TH.mp, mpScale[0], mpScale[1], 'J/min');
   // Gauge messages and badges
   var dpBadge = document.getElementById('dpCardBadge');
   var dpMsg = document.getElementById('dpGaugeMsg');
   if(dpBadge && dpMsg){
-    if(dpVal >= TH.dp){ dpBadge.textContent='偏 高'; dpBadge.className='badge b-warn'; dpMsg.textContent='已超阈值'; dpMsg.style.color='var(--warn)'; }
+    if(dpVal==null){ dpBadge.textContent='—'; dpBadge.className='badge b-ok'; dpMsg.textContent='无数据'; dpMsg.style.color='var(--t-3)'; }
+    else if(dpVal >= TH.dp){ dpBadge.textContent='偏 高'; dpBadge.className='badge b-warn'; dpMsg.textContent='已超阈值'; dpMsg.style.color='var(--warn)'; }
     else if(dpVal >= TH.dp - 2){ dpBadge.textContent='关 注'; dpBadge.className='badge b-watch'; dpMsg.textContent='接近阈值'; dpMsg.style.color='var(--watch)'; }
     else { dpBadge.textContent='正 常'; dpBadge.className='badge b-ok'; dpMsg.textContent='安全范围'; dpMsg.style.color='var(--ok)'; }
   }
   var mpBadge = document.getElementById('mpCardBadge');
   var mpMsg = document.getElementById('mpGaugeMsg');
   if(mpBadge && mpMsg){
-    if(mpVal >= TH.mp){ mpBadge.textContent='偏 高'; mpBadge.className='badge b-warn'; mpMsg.textContent='已超阈值'; mpMsg.style.color='var(--warn)'; }
+    if(mpVal==null){ mpBadge.textContent='—'; mpBadge.className='badge b-ok'; mpMsg.textContent='无数据'; mpMsg.style.color='var(--t-3)'; }
+    else if(mpVal >= TH.mp){ mpBadge.textContent='偏 高'; mpBadge.className='badge b-warn'; mpMsg.textContent='已超阈值'; mpMsg.style.color='var(--warn)'; }
     else if(mpVal >= TH.mp - 3){ mpBadge.textContent='关 注'; mpBadge.className='badge b-watch'; mpMsg.textContent='接近阈值'; mpMsg.style.color='var(--watch)'; }
     else { mpBadge.textContent='正 常'; mpBadge.className='badge b-ok'; mpMsg.textContent='安全范围'; mpMsg.style.color='var(--ok)'; }
   }
   // Risk card border
   var dpCard = document.querySelector('.risk-grid .risk-card:nth-child(1)');
-  if(dpCard){ var dplv=gaugeLevel(dpVal, TH.dp, 22); dpCard.className='risk-card lv-'+Math.min(dplv,3); }
+  if(dpCard){ var dplv=gaugeLevel(dpVal==null?0:dpVal, TH.dp, dpScale[1]); dpCard.className='risk-card lv-'+Math.min(dplv,3); }
   var mpCard = document.querySelector('.risk-grid .risk-card:nth-child(2)');
-  if(mpCard){ var mplv=gaugeLevel(mpVal, TH.mp, 28); mpCard.className='risk-card lv-'+Math.min(mplv,3); }
+  if(mpCard){ var mplv=gaugeLevel(mpVal==null?0:mpVal, TH.mp, mpScale[1]); mpCard.className='risk-card lv-'+Math.min(mplv,3); }
   // Status bar
   var statusEls = document.querySelectorAll('#statusbar span');
   if(statusEls[2]) statusEls[2].textContent = '计算引擎：Python · 实时计算';

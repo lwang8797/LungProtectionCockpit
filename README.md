@@ -58,19 +58,19 @@ python -m venv .venv
 pip install -r lung_protection_cockpit/requirements.txt
 ```
 
-**② 启动（以下按你使用的终端选一种；把 `all --hours 2` 换成 `backfill --hours 24` / `aggregate` / `serve` 即分步）**
+**② 启动（以下按你使用的终端选一种；默认回填 24h 以支撑 24h 趋势图，可改 `--hours`；用 `backfill --hours 24` / `aggregate` / `serve` 即分步）**
 
 - Git Bash：
   ```bash
-  PYTHONPATH=. python -m lung_protection_cockpit.main all --hours 2
+  PYTHONPATH=. python -m lung_protection_cockpit.main all --hours 24
   ```
 - Windows CMD：
   ```bat
-  set PYTHONPATH=. && python -m lung_protection_cockpit.main all --hours 2
+  set PYTHONPATH=. && python -m lung_protection_cockpit.main all --hours 24
   ```
 - Windows PowerShell：
   ```powershell
-  $env:PYTHONPATH="."; python -m lung_protection_cockpit.main all --hours 2
+  $env:PYTHONPATH="."; python -m lung_protection_cockpit.main all --hours 24
   ```
 
 > 嫌敲命令麻烦？可直接双击 `输出/启动后端.bat`（自动建 venv、装依赖、设 PYTHONPATH 并启动）。

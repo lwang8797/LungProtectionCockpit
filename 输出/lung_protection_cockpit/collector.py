@@ -4,6 +4,7 @@ collector.py - 数据采集模块
 从 MongoDB measure_param 集合按时间窗口采集原始参数，透视对齐为行。
 """
 
+import logging
 import math
 from datetime import datetime, timezone
 from typing import Optional
@@ -11,9 +12,11 @@ from typing import Optional
 from pymongo import MongoClient
 
 from .config import (
-    MONGO_URI, MONGO_DB, COLL_RAW, COLL_WORK_MODE, DEVICE_ID,
+    MONGO_URI, MONGO_DB, COLL_RAW, COLL_1MIN, COLL_ALERTS, COLL_WORK_MODE, DEVICE_ID,
     PARAM_MAP, ALL_PARAM_IDS,
 )
+
+logger = logging.getLogger("lung_cockpit.collector")
 
 
 def get_db():
@@ -28,6 +31,33 @@ def to_float(v) -> float:
         return float(v)
     except (ValueError, TypeError):
         return float("nan")
+
+
+def ensure_indexes(db):
+    """创建查询所需索引（幂等，可重复调用）。
+
+    性能关键：measure_param 原始集合可达数百万文档，get_time_range 对
+    timeStamp 排序取极值若无索引会全表扫描（本环境 ~7.4M 文档 → 每次数秒）。
+    建索引后该扫描变为索引定位，<10ms。
+    逐条创建并在各自 try 中处理，避免单条失败（如“索引已存在”）阻断其余。
+    """
+    specs = [
+        (COLL_RAW, [("deviceId", 1), ("timeStamp", -1)], "raw_dev_ts", {}),
+        (COLL_1MIN, [("deviceId", 1), ("minute", -1)], "dev_minute", {"unique": True}),
+        (COLL_ALERTS, [("deviceId", 1), ("ts", -1)], "dev_ts_alert", {}),
+    ]
+    for coll, keys, name, opts in specs:
+        kwargs = {"background": True}
+        kwargs.update(opts)
+        try:
+            db[coll].create_index(keys, name=name, **kwargs)
+            logger.info("索引已创建: %s.%s", coll, name)
+        except Exception as e:  # 索引创建失败不应阻断主流程
+            # 85 = IndexOptionsConflict：同名/同键索引已存在，属正常（幂等），不告警
+            if getattr(e, "code", None) == 85 or "already exists" in str(e).lower():
+                logger.info("索引已存在（跳过）: %s.%s", coll, name)
+            else:
+                logger.warning("ensure_indexes 部分失败 %s.%s: %s", coll, name, e)
 
 
 def get_time_range(db, device_id: str = DEVICE_ID) -> tuple:

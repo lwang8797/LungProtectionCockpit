@@ -76,6 +76,109 @@ def get_database():
     return _db
 
 
+# ───────────────────────── 性能关键辅助 ─────────────────────────
+# 趋势 / 风险图 / 总览的"当前值"一律优先读 metrics_1min（1 doc/min，已建索引），
+# 避免对 raw measure_param（数百万文档）做全表扫描（原 6–9s → <1s）。
+# 仅当 metrics_1min 尚无数据时回退到 collect_raw 实时计算。
+
+DP_VALID_FLOOR = 3.0    # cmH2O，低于此视为待机/过渡脏值（如末分钟 DrivePress 跳变 2.0）
+MP_VALID_FLOOR = 0.5    # J/min
+
+
+def get_latest_minute_ts(db, device_id: str = DEVICE_ID) -> int:
+    """取 metrics_1min 最新分钟（毫秒时间戳）；无聚合数据时返回 0。"""
+    doc = db[COLL_1MIN].find_one({"deviceId": device_id}, sort=[("minute", -1)])
+    return int(doc["minute"]) if doc else 0
+
+
+def _latest_valid_ventilation(vent_docs: list) -> tuple:
+    """从最近通气分钟向前找第一个「ΔP、MP 均有效」的分钟，返回 (dp_mean, mp_mean)。
+
+    用于"当前值"口径：忽略 PEEP=OFF/待机、以及末分钟因参数跳变产生的脏值
+    （如 ΔP=2.0 而真实通气约 9.0），取最近一次可信有效通气。
+    """
+    for d in reversed(vent_docs):
+        dpv = d.get("dp_mean")
+        mpv = d.get("mp_mean")
+        if dpv is None or mpv is None:
+            continue
+        if isinstance(dpv, float) and math.isnan(dpv):
+            continue
+        if isinstance(mpv, float) and math.isnan(mpv):
+            continue
+        if dpv >= DP_VALID_FLOOR and mpv >= MP_VALID_FLOOR:
+            return dpv, mpv
+    return None, None
+
+
+def _trend_from_1min(db, device_id, start_ts, latest_ts, field, threshold, points, dec):
+    # 注意：返回窗口内「每一分钟」一个点（含待机分钟，value=None），
+    # 以匹配前端按分钟对齐的时间轴（24h≈1440点）。待机分钟在前端按无效值处理。
+    docs = list(db[COLL_1MIN].find(
+        {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts}},
+        {"_id": 0, "minute": 1, field: 1},
+    ).sort("minute", 1))
+    if not docs:
+        return None
+    if len(docs) > points:
+        step = len(docs) // points
+        docs = docs[::step][:points]
+    out = []
+    for d in docs:
+        v = d.get(field)
+        out.append({
+            "ts": d["minute"],
+            "dt": datetime.fromtimestamp(d["minute"] / 1000, tz=timezone.utc).isoformat(),
+            "value": round(v, dec) if v is not None else None,
+            "threshold": threshold,
+        })
+    return out
+
+
+def _trend_from_raw(db, device_id, start_ts, latest_ts, field, threshold, points, dec):
+    rows = collect_raw(db, device_id, start_ts, latest_ts)
+    enrich_rows(rows)
+    if len(rows) > points:
+        step = len(rows) // points
+        rows = rows[::step][:points]
+    return [{
+        "ts": r["ts"],
+        "dt": r["dt"].isoformat(),
+        "value": round(r.get(field, float("nan")), dec) if not math.isnan(r.get(field, float("nan"))) else None,
+        "threshold": threshold,
+    } for r in rows]
+
+
+def _riskmap_from_1min(db, device_id, start_ts, latest_ts, points):
+    docs = list(db[COLL_1MIN].find(
+        {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts},
+         "is_ventilating": True, "dp_mean": {"$ne": None}, "mp_mean": {"$ne": None}},
+        {"_id": 0, "minute": 1, "dp_mean": 1, "mp_mean": 1, "risk_level": 1},
+    ).sort("minute", 1))
+    if not docs:
+        return None
+    if len(docs) > points:
+        step = len(docs) // points
+        docs = docs[::step][:points]
+    return [{
+        "dp": round(d["dp_mean"], 1),
+        "mp": round(d["mp_mean"], 2),
+        "minute": d["minute"],
+        "risk_level": d.get("risk_level", 1),
+    } for d in docs]
+
+
+def _riskmap_from_raw(db, device_id, start_ts, latest_ts, points):
+    rows = collect_raw(db, device_id, start_ts, latest_ts)
+    enrich_rows(rows)
+    vent_rows, _ = filter_ventilated(rows)
+    use_rows = vent_rows if vent_rows else rows
+    if len(use_rows) > points:
+        step = len(use_rows) // points
+        use_rows = use_rows[::step][:points]
+    return build_risk_map_points(use_rows)
+
+
 # ════════════════════ WebSocket 连接管理器 ════════════════════
 
 class ConnectionManager:
@@ -182,7 +285,10 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     优先从 metrics_1min 取聚合结果（快），回退到实时计算。
     """
     db = get_database()
-    _, latest_ts = get_time_range(db, device_id)
+    # 取最新分钟（metrics_1min 已建索引，毫秒级；首次未聚合则回退 raw 全表扫描）
+    latest_ts = get_latest_minute_ts(db, device_id)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, device_id)
     if latest_ts == 0:
         return {"error": "no_data", "device": device_id}
 
@@ -209,6 +315,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
 
         dp_over_pct = sum(d.get("dp_over_pct", 0) for d in vent_docs) / len(vent_docs) if vent_docs else 0
         mp_over_pct = sum(d.get("mp_over_pct", 0) for d in vent_docs) / len(vent_docs) if vent_docs else 0
+
+        # 「当前」值 = 最近一次有效通气（排除脏值），而非末分钟字面量
+        dp_current, mp_current = _latest_valid_ventilation(vent_docs)
 
         last_doc = agg_docs[-1]
         vent_min = last_doc.get("vent_duration_min", 0)
@@ -243,14 +352,14 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "risk_level_instant": last_doc.get("risk_level_instant", 1),
             "cumulative_risk_level": cum_risk,
             "dp": {
-                "current": dp_vals[-1] if dp_vals else None,
+                "current": round(dp_current, 1) if dp_current is not None else None,
                 "max": round(dp_max_val, 1),
                 "mean": round(sum(dp_vals) / len(dp_vals), 1) if dp_vals else None,
                 "threshold": DP_THRESHOLD,
                 "over_pct": round(dp_over_pct, 1),
             },
             "mp": {
-                "current": mp_vals[-1] if mp_vals else None,
+                "current": round(mp_current, 2) if mp_current is not None else None,
                 "max": round(mp_max_val, 2),
                 "mean": round(sum(mp_vals) / len(mp_vals), 2) if mp_vals else None,
                 "threshold": MP_THRESHOLD,
@@ -383,26 +492,16 @@ async def get_dp_trend(
     hours: float = Query(default=DEFAULT_WINDOW_HOURS, ge=0.1, le=168),
     points: int = Query(default=120, ge=10, le=2000),
 ):
-    """ΔP 时间序列"""
+    """ΔP 时间序列（优先读 metrics_1min，秒级返回）"""
     db = get_database()
-    _, latest_ts = get_time_range(db, deviceId)
+    latest_ts = get_latest_minute_ts(db, deviceId)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, deviceId)
     start_ts = latest_ts - int(hours * 3600 * 1000)
 
-    rows = collect_raw(db, deviceId, start_ts, latest_ts)
-    enrich_rows(rows)
-
-    if len(rows) > points:
-        step = len(rows) // points
-        rows = rows[::step][:points]
-
-    data = [{
-        "ts": r["ts"],
-        "dt": r["dt"].isoformat(),
-        "value": round(r.get("dP", float("nan")), 1) if not math.isnan(r.get("dP", float("nan"))) else None,
-        "threshold": DP_THRESHOLD,
-    } for r in rows]
-
-    return {"device": deviceId, "points": len(data), "series": data}
+    series = _trend_from_1min(db, deviceId, start_ts, latest_ts, "dp_mean", DP_THRESHOLD, points, 1) \
+        or _trend_from_raw(db, deviceId, start_ts, latest_ts, "dP", DP_THRESHOLD, points, 1)
+    return {"device": deviceId, "points": len(series), "series": series}
 
 
 @app.get("/api/mp/trend")
@@ -411,26 +510,16 @@ async def get_mp_trend(
     hours: float = Query(default=DEFAULT_WINDOW_HOURS, ge=0.1, le=168),
     points: int = Query(default=120, ge=10, le=2000),
 ):
-    """MP 时间序列"""
+    """MP 时间序列（优先读 metrics_1min，秒级返回）"""
     db = get_database()
-    _, latest_ts = get_time_range(db, deviceId)
+    latest_ts = get_latest_minute_ts(db, deviceId)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, deviceId)
     start_ts = latest_ts - int(hours * 3600 * 1000)
 
-    rows = collect_raw(db, deviceId, start_ts, latest_ts)
-    enrich_rows(rows)
-
-    if len(rows) > points:
-        step = len(rows) // points
-        rows = rows[::step][:points]
-
-    data = [{
-        "ts": r["ts"],
-        "dt": r["dt"].isoformat(),
-        "value": round(r.get("MP", float("nan")), 2) if not math.isnan(r.get("MP", float("nan"))) else None,
-        "threshold": MP_THRESHOLD,
-    } for r in rows]
-
-    return {"device": deviceId, "points": len(data), "series": data}
+    series = _trend_from_1min(db, deviceId, start_ts, latest_ts, "mp_mean", MP_THRESHOLD, points, 2) \
+        or _trend_from_raw(db, deviceId, start_ts, latest_ts, "MP", MP_THRESHOLD, points, 2)
+    return {"device": deviceId, "points": len(series), "series": series}
 
 
 @app.get("/api/risk-map")
@@ -439,22 +528,15 @@ async def get_risk_map(
     hours: float = Query(default=DEFAULT_WINDOW_HOURS, ge=0.1, le=168),
     points: int = Query(default=300, ge=10, le=5000),
 ):
-    """ΔP-MP 二维散点数据"""
+    """ΔP-MP 二维散点数据（优先读 metrics_1min，秒级返回）"""
     db = get_database()
-    _, latest_ts = get_time_range(db, deviceId)
+    latest_ts = get_latest_minute_ts(db, deviceId)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, deviceId)
     start_ts = latest_ts - int(hours * 3600 * 1000)
 
-    rows = collect_raw(db, deviceId, start_ts, latest_ts)
-    enrich_rows(rows)
-    vent_rows, _ = filter_ventilated(rows)
-    use_rows = vent_rows if vent_rows else rows
-
-    if len(use_rows) > points:
-        step = len(use_rows) // points
-        use_rows = use_rows[::step][:points]
-
-    pts = build_risk_map_points(use_rows)
-
+    pts = _riskmap_from_1min(db, deviceId, start_ts, latest_ts, points) \
+        or _riskmap_from_raw(db, deviceId, start_ts, latest_ts, points)
     return {
         "device": deviceId,
         "points": len(pts),
