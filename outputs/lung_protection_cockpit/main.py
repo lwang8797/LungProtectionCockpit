@@ -3,17 +3,17 @@
 main.py - 启动入口
 
 用法:
-  # 仅启动 API 服务
+  # 仅启动 API 服务（会自动后台启动 1 分钟聚合守护进程，保证实时更新）
   python -m lung_protection_cockpit.main serve
 
   # 回填历史数据（默认 24h）
   python -m lung_protection_cockpit.main backfill --hours 24
 
-  # 启动聚合守护进程
+  # 单独启动聚合守护进程（一般无需，serve/all 已内含）
   python -m lung_protection_cockpit.main aggregate
 
-  # 一键启动（回填 + API）
-  python -m lung_protection_cockpit.main all --hours 2
+  # 一键启动（回填 + API + 后台聚合）
+  python -m lung_protection_cockpit.main all --hours 24
 
 环境变量:
   COCKPIT_HOST (default 0.0.0.0)
@@ -34,16 +34,34 @@ logger = logging.getLogger("lung_cockpit")
 
 
 def cmd_serve(args):
-    """启动 FastAPI 服务"""
+    """启动 FastAPI 服务（同时后台运行 1 分钟聚合守护进程，保证实时更新）"""
+    import threading
     import uvicorn
     from .api import app
     from .collector import get_db, ensure_indexes
+    from .aggregator import run_continuous
+    from .config import DEVICE_ID
 
+    db = get_db()
     # 启动即确保索引（幂等），让 metrics_1min / measure_param 查询走索引
     try:
-        ensure_indexes(get_db())
+        ensure_indexes(db)
     except Exception as e:
         logger.warning(f"索引预创建失败（可忽略，查询会变慢）: {e}")
+
+    # 后台启动 1 分钟聚合守护进程：持续把最新原始数据写入 metrics_1min，
+    # 趋势/风险图与总览才能随时间实时刷新（serve 默认不含聚合，此为补齐）。
+    try:
+        agg_thread = threading.Thread(
+            target=run_continuous,
+            kwargs={"db": db, "device_id": DEVICE_ID, "poll_interval": 10.0},
+            daemon=True,
+            name="agg-continuous",
+        )
+        agg_thread.start()
+        logger.info(f"聚合守护进程已后台启动（设备={DEVICE_ID}, 轮询=10s）")
+    except Exception as e:
+        logger.warning(f"聚合守护进程启动失败（趋势/风险图将回退到原始表，仍可用）: {e}")
 
     host = os.environ.get("COCKPIT_HOST", "0.0.0.0")
     port = int(os.environ.get("COCKPIT_PORT", "8080"))

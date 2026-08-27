@@ -3,6 +3,8 @@
 config.py - 全局配置：MongoDB 连接、参数映射、阈值
 """
 
+import os
+
 # ── MongoDB 连接 ──
 MONGO_URI = "mongodb://192.168.1.100:27017"
 MONGO_DB = "data-services-prod"
@@ -11,7 +13,10 @@ COLL_1MIN = "metrics_1min"         # 1分钟聚合结果（本服务创建）
 COLL_ALERTS = "cockpit_alerts"     # 预警事件（本服务创建）
 COLL_WORK_MODE = "work_mode"       # 通气模式集合（仅在变化时写入）
 
-DEVICE_ID = "ATVIPVTEST1"
+# 当前在线呼吸机设备。可用环境变量 COCKPIT_DEVICE_ID 临时覆盖（便于回退到旧设备
+# ATVIPVTEST1）。两台设备使用相同的 paramId 方案，PARAM_MAP 无需改动。
+# 注：ATVIPVTEST1 数据停在 2026-08-03 已离线；1787816609 为当前在线设备（2026-08-27 实测）。
+DEVICE_ID = os.environ.get("COCKPIT_DEVICE_ID", "1787816609")
 
 # ── 参数 paramId -> 标准化名 ──
 # 注意：PR(128) 是患者自主呼吸频率，测试环境恒为"---"

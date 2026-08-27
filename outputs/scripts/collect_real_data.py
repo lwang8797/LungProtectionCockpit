@@ -16,7 +16,7 @@ from pymongo import MongoClient
 MONGO_URI = "mongodb://192.168.1.100:27017"
 DB_NAME = "data-services-prod"
 COLL = "measure_param"
-DEVICE_ID = "ATVIPVTEST1"
+DEVICE_ID = "1787816609"
 
 # paramId -> 标准化名
 # 注意: PR(128)是患者自主呼吸频率, 测试环境恒为"---"(无自主呼吸)

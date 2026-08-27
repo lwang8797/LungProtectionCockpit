@@ -84,14 +84,14 @@ hr{border:none;border-top:1px solid var(--border);margin:32px 0}
 <tr><td>集合</td><td><code>measure_param</code></td><td>7,348,775 条记录</td></tr>
 <tr><td>认证</td><td>无（security 未启用）</td><td>bindIp: 0.0.0.0</td></tr>
 <tr><td>索引</td><td><code>_id_</code>, <code>deviceId_1_timeStamp_1</code></td><td>仅有 2 个索引</td></tr>
-<tr><td>设备</td><td><code>ATVIPVTEST1</code></td><td>当前仅有 1 台测试设备</td></tr>
+<tr><td>设备</td><td><code>1787816609</code></td><td>当前仅有 1 台测试设备</td></tr>
 </table>
 
 <h3>1.2 measure_param 文档结构</h3>
 <pre><code>{
   _id: ObjectId("..."),
   paramId: 160,                    // 参数ID（数字）
-  deviceId: "ATVIPVTEST1",         // 设备ID
+  deviceId: "1787816609",         // 设备ID
   value: "8",                      // 值（字符串！需 parseFloat）
   name: "DrivePress",              // 参数名
   unitName: "cmH₂O",              // 单位
@@ -253,7 +253,7 @@ vent_rows = [r for r in rows.values() if r.get("dP", 0) > 0]</code></pre>
 <h3>4.1 metrics_1min 集合（新建）</h3>
 <pre><code>{
   _id: ObjectId("..."),
-  deviceId: "ATVIPVTEST1",
+  deviceId: "1787816609",
   minute: ISODate("2026-08-03T00:01:00Z"),  // 1分钟桶
 
   // ΔP 指标
