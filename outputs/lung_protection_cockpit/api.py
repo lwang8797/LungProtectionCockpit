@@ -431,7 +431,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         # 「当前」值 = 最近一次有效通气（排除脏值），而非末分钟字面量
         dp_current, mp_current = _latest_valid_ventilation(vent_docs)
 
-        last_doc = agg_docs[-1]
+        # 「通气全程」滚动累计存于每一条「通气」分钟文档；取最新一条通气分钟，
+        # 避免末分钟为待机(累计写0)或窗口截断导致取到 0.0。
+        last_doc = vent_docs[-1] if vent_docs else agg_docs[-1]
         vent_min = last_doc.get("vent_duration_min", 0)
         risk = last_doc.get("risk_level", 1)
         cum_risk = last_doc.get("cumulative_risk_level", 1)
@@ -482,55 +484,56 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "total_minutes": len(agg_docs),
         }
 
-    # 回退到实时计算
-    rows = collect_raw(db, device_id, start_ts, latest_ts)
-    if not rows:
-        return {"error": "no_data_window", "device": device_id}
+    else:
+        # 回退到实时计算（仅当 metrics_1min 尚无聚合数据，如首次运行/未启动聚合守护进程）
+        rows = collect_raw(db, device_id, start_ts, latest_ts)
+        if not rows:
+            return {"error": "no_data_window", "device": device_id}
 
-    enrich_rows(rows)
-    vent_rows, _ = filter_ventilated(rows)
-    use_rows = vent_rows if vent_rows else rows
-    exposure = compute_exposure(use_rows)
+        enrich_rows(rows)
+        vent_rows, _ = filter_ventilated(rows)
+        use_rows = vent_rows if vent_rows else rows
+        exposure = compute_exposure(use_rows)
 
-    cum_risk = exposure["cumulative_risk_level"]
-    risk = max(exposure["risk_level"], cum_risk)
-    vent_min = len(use_rows) * 4 / 60
+        cum_risk = exposure["cumulative_risk_level"]
+        risk = max(exposure["risk_level"], cum_risk)
+        vent_min = len(use_rows) * 4 / 60
 
-    cum_state = {
-        "cum_over_minutes": exposure["cum_over_minutes"],
-        "compliance_mean": exposure.get("compliance_mean"),
-        "energy_j": exposure["cum_energy_j"],
-        "cum_auc_above": exposure["cum_auc_above"],
-        "vent_min": vent_min,
-        "cum_risk": cum_risk,
-    }
+        cum_state = {
+            "cum_over_minutes": exposure["cum_over_minutes"],
+            "compliance_mean": exposure.get("compliance_mean"),
+            "energy_j": exposure["cum_energy_j"],
+            "cum_auc_above": exposure["cum_auc_above"],
+            "vent_min": vent_min,
+            "cum_risk": cum_risk,
+        }
 
-    result = {
-        "device": device_id,
-        "source": "realtime",
-        "work_mode": work_mode,
-        "risk_level": risk,
-        "risk_label": RISK_LABELS.get(risk, "L1 正常"),
-        "risk_level_instant": exposure["risk_level"],
-        "cumulative_risk_level": cum_risk,
-        "dp": {
-            "current": round(use_rows[-1]["dP"], 1) if use_rows and not math.isnan(use_rows[-1].get("dP", float("nan"))) else None,
-            "max": round(exposure["dp"]["max"], 1) if not math.isnan(exposure["dp"]["max"]) else None,
-            "mean": round(exposure["dp"]["mean"], 1) if not math.isnan(exposure["dp"]["mean"]) else None,
-            "threshold": DP_THRESHOLD,
-            "over_pct": round(exposure["dp"]["over_pct"], 1),
-        },
-        "mp": {
-            "current": round(use_rows[-1]["MP"], 2) if use_rows and not math.isnan(use_rows[-1].get("MP", float("nan"))) else None,
-            "max": round(exposure["mp"]["max"], 2) if not math.isnan(exposure["mp"]["max"]) else None,
-            "mean": round(exposure["mp"]["mean"], 2) if not math.isnan(exposure["mp"]["mean"]) else None,
-            "threshold": MP_THRESHOLD,
-            "over_pct": round(exposure["mp"]["over_pct"], 1),
-        },
-        "cumulative": _cumulative_block(cum_state),
-        "vent_minutes": int(len(use_rows) * 4 / 60),
-        "total_minutes": int(len(rows) * 4 / 60),
-    }
+        result = {
+            "device": device_id,
+            "source": "realtime",
+            "work_mode": work_mode,
+            "risk_level": risk,
+            "risk_label": RISK_LABELS.get(risk, "L1 正常"),
+            "risk_level_instant": exposure["risk_level"],
+            "cumulative_risk_level": cum_risk,
+            "dp": {
+                "current": round(use_rows[-1]["dP"], 1) if use_rows and not math.isnan(use_rows[-1].get("dP", float("nan"))) else None,
+                "max": round(exposure["dp"]["max"], 1) if not math.isnan(exposure["dp"]["max"]) else None,
+                "mean": round(exposure["dp"]["mean"], 1) if not math.isnan(exposure["dp"]["mean"]) else None,
+                "threshold": DP_THRESHOLD,
+                "over_pct": round(exposure["dp"]["over_pct"], 1),
+            },
+            "mp": {
+                "current": round(use_rows[-1]["MP"], 2) if use_rows and not math.isnan(use_rows[-1].get("MP", float("nan"))) else None,
+                "max": round(exposure["mp"]["max"], 2) if not math.isnan(exposure["mp"]["max"]) else None,
+                "mean": round(exposure["mp"]["mean"], 2) if not math.isnan(exposure["mp"]["mean"]) else None,
+                "threshold": MP_THRESHOLD,
+                "over_pct": round(exposure["mp"]["over_pct"], 1),
+            },
+            "cumulative": _cumulative_block(cum_state),
+            "vent_minutes": int(len(use_rows) * 4 / 60),
+            "total_minutes": int(len(rows) * 4 / 60),
+        }
 
     # ── 实时当前值（方案A）：原始批次到达即计算，不等聚合分钟关门 ──
     live = compute_live_current(db, device_id)

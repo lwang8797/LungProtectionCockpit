@@ -79,7 +79,27 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
     use_rows = vent_rows if vent_rows else []
 
     if not use_rows:
-        # 全部待机，仍写一条占位
+        # 全部待机，仍写一条占位，但「继承」上一分钟的滚动累计，
+        # 避免设备待机/过渡分钟把「通气全程」累计清零。
+        prev = db[COLL_1MIN].find_one(
+            {"deviceId": device_id}, sort=[("minute", -1)]
+        )
+        pc = {}
+        if prev and prev.get("minute", 0) < minute_start_ts:
+            pc = {
+                "cum_dp_over_min": prev.get("cum_dp_over_min", 0.0) or 0.0,
+                "cum_mp_over_min_18": prev.get("cum_mp_over_min_18", 0.0) or 0.0,
+                "cum_mp_over_min_20": prev.get("cum_mp_over_min_20", 0.0) or 0.0,
+                "cum_dp_auc_above": prev.get("cum_dp_auc_above", 0.0) or 0.0,
+                "cum_mp_auc_above_17": prev.get("cum_mp_auc_above_17", 0.0) or 0.0,
+                "cum_mp_auc_above_18": prev.get("cum_mp_auc_above_18", 0.0) or 0.0,
+                "cum_mp_auc_above_20": prev.get("cum_mp_auc_above_20", 0.0) or 0.0,
+                "cum_energy": prev.get("cum_energy", 0.0) or 0.0,
+                "compliance_mean": prev.get("compliance_mean"),
+                "vent_duration_min": prev.get("vent_duration_min", 0.0) or 0.0,
+                "cumulative_risk_level": prev.get("cumulative_risk_level", 1),
+            }
+        cum_risk = pc.get("cumulative_risk_level", 1)
         doc = {
             "deviceId": device_id,
             "minute": minute_start_ts,
@@ -93,20 +113,20 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
             "dp_over_count": 0, "dp_over_pct": 0.0, "dp_auc": 0.0,
             "mp_mean": None, "mp_max": None,
             "mp_over_count": 0, "mp_over_pct": 0.0, "mp_auc": 0.0,
-            "cum_dp_over_min": 0.0,
-            "cum_mp_over_min_18": 0.0,
-            "cum_mp_over_min_20": 0.0,
-            "cum_dp_auc_above": 0.0,
-            "cum_mp_auc_above_17": 0.0,
-            "cum_mp_auc_above_18": 0.0,
-            "cum_mp_auc_above_20": 0.0,
-            "cum_energy": 0.0,
-            "compliance_mean": None,
-            "vent_duration_min": 0.0,
+            "cum_dp_over_min": pc.get("cum_dp_over_min", 0.0),
+            "cum_mp_over_min_18": pc.get("cum_mp_over_min_18", 0.0),
+            "cum_mp_over_min_20": pc.get("cum_mp_over_min_20", 0.0),
+            "cum_dp_auc_above": pc.get("cum_dp_auc_above", 0.0),
+            "cum_mp_auc_above_17": pc.get("cum_mp_auc_above_17", 0.0),
+            "cum_mp_auc_above_18": pc.get("cum_mp_auc_above_18", 0.0),
+            "cum_mp_auc_above_20": pc.get("cum_mp_auc_above_20", 0.0),
+            "cum_energy": pc.get("cum_energy", 0.0),
+            "compliance_mean": pc.get("compliance_mean"),
+            "vent_duration_min": pc.get("vent_duration_min", 0.0),
             "risk_level_instant": 1,
-            "cumulative_risk_level": 1,
-            "risk_level": 1,
-            "risk_label": RISK_LABELS[1],
+            "cumulative_risk_level": cum_risk,
+            "risk_level": cum_risk,
+            "risk_label": RISK_LABELS.get(cum_risk, "L1 正常"),
             "pip_mean": None, "peep_mean": None, "vt_mean": None,
             "rr_mean": None, "plat_mean": None, "crs_mean": None,
         }

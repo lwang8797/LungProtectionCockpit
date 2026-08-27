@@ -618,13 +618,20 @@ function setCumCell(id, val, unit, l3, l4, dec){
 function fillCumCard(cum){
   if(!cum) return;
   var stratum = cum.compliance_stratum || 'high';
-  setCumCell('cumDpOver', cum.dp_over_hours, 'h', CUM.dpOverH3, CUM.dpOverH4, 1);
+  // 自动单位：高暴露时长 <1h 显示「分钟」，机械能 <1kJ 显示「J」，避免小数值被舍入成 0.0
+  var dpH = cum.dp_over_hours || 0;
+  if(dpH < 1){ setCumCell('cumDpOver', dpH*60, 'min', CUM.dpOverH3*60, CUM.dpOverH4*60, 2); }
+  else { setCumCell('cumDpOver', dpH, 'h', CUM.dpOverH3, CUM.dpOverH4, 2); }
   var mpOver = stratum==='low' ? cum.mp_over_hours_low : cum.mp_over_hours_high;
   var mpTh = stratum==='low' ? CUM.mpLowTh : CUM.mpHighTh;
   var mpH3 = stratum==='low' ? CUM.mpLowH3 : CUM.mpHighH3;
   var mpH4 = stratum==='low' ? CUM.mpLowH4 : CUM.mpHighH4;
-  setCumCell('cumMpOver', mpOver, 'h', mpH3, mpH4, 1);
-  setCumCell('cumEnergy', cum.energy_kj, 'kJ', null, null, 1);
+  var mpO = mpOver || 0;
+  if(mpO < 1){ setCumCell('cumMpOver', mpO*60, 'min', mpH3*60, mpH4*60, 2); }
+  else { setCumCell('cumMpOver', mpO, 'h', mpH3, mpH4, 2); }
+  var ek = cum.energy_kj || 0;
+  if(ek < 1){ setCumCell('cumEnergy', ek*1000, 'J', null, null, 1); }
+  else { setCumCell('cumEnergy', ek, 'kJ', null, null, 2); }
   document.getElementById('cumVentDur').innerHTML = fmtDur(cum.vent_duration_min||0);
   var se = document.getElementById('cumStratum');
   if(se) se.textContent = (stratum==='low'?'低顺应性':'高顺应性') + (mpTh?('（MP≥'+mpTh+'）'):'');
