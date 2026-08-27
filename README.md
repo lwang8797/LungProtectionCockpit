@@ -41,20 +41,39 @@
 
 依赖：Python 3.10+，并安装 `输出/lung_protection_cockpit/requirements.txt`（fastapi / uvicorn / pymongo / python-dateutil 等）。
 
+> ⚠️ **Windows 必读**
+> 1. 必须先在**「输出」目录**下执行（`lung_protection_cockpit` 包位于此），否则报 `No module named lung_protection_cockpit`。
+> 2. 设 `PYTHONPATH` 指向当前目录（`输出`），让 Python 能找到该包。**不同终端写法不同**：
+>    - Git Bash / WSL / Linux / macOS：`PYTHONPATH=. python -m ...`
+>    - **Windows CMD**：`set PYTHONPATH=. && python -m ...`
+>    - **Windows PowerShell**：`$env:PYTHONPATH="."; python -m ...`
+> 3. 若 8080 端口被占用（报错 `OSError: [WinError 10048]`），改用其他端口，例如 `COCKPIT_PORT=8090`（Git Bash）/ `$env:COCKPIT_PORT="8090"`（PowerShell）。
+
+**① 首次：建虚拟环境并装依赖（三种终端通用）**
+
 ```bash
 cd 输出
-
-# 安装依赖（推荐虚拟环境）
+python -m venv .venv
+#   激活：Git Bash → source .venv/Scripts/activate ；CMD → .venv\Scripts\activate ；PowerShell → .venv\Scripts\Activate.ps1
 pip install -r lung_protection_cockpit/requirements.txt
-
-# 一键启动（回填最近 2h 历史 + 启动 API，监听 0.0.0.0:8080）
-PYTHONPATH=. python -m lung_protection_cockpit.main all --hours 2
-
-# 或分步：
-PYTHONPATH=. python -m lung_protection_cockpit.main backfill --hours 24   # 回填历史聚合（metrics_1min）
-PYTHONPATH=. python -m lung_protection_cockpit.main aggregate              # 持续聚合新数据（守护进程）
-PYTHONPATH=. python -m lung_protection_cockpit.main serve                 # 仅启动 API
 ```
+
+**② 启动（以下按你使用的终端选一种；把 `all --hours 2` 换成 `backfill --hours 24` / `aggregate` / `serve` 即分步）**
+
+- Git Bash：
+  ```bash
+  PYTHONPATH=. python -m lung_protection_cockpit.main all --hours 2
+  ```
+- Windows CMD：
+  ```bat
+  set PYTHONPATH=. && python -m lung_protection_cockpit.main all --hours 2
+  ```
+- Windows PowerShell：
+  ```powershell
+  $env:PYTHONPATH="."; python -m lung_protection_cockpit.main all --hours 2
+  ```
+
+> 嫌敲命令麻烦？可直接双击 `输出/启动后端.bat`（自动建 venv、装依赖、设 PYTHONPATH 并启动）。
 
 环境变量：`COCKPIT_HOST`（默认 0.0.0.0）、`COCKPIT_PORT`（默认 8080）。
 启动后访问：
@@ -87,7 +106,9 @@ python -m http.server 5173 -d 输出
 ```bash
 # 离线纯逻辑测试（无需 MongoDB / 网络）：累积维度评级、顺应性分层与合并风险
 cd 输出
-PYTHONPATH=. python scripts/test_cumulative_logic.py
+#   Git Bash:  PYTHONPATH=. python scripts/test_cumulative_logic.py
+#   Windows CMD:   set PYTHONPATH=. && python scripts/test_cumulative_logic.py
+#   PowerShell:    $env:PYTHONPATH="."; python scripts/test_cumulative_logic.py
 
 # 端到端 API 测试（需先启动服务 + MongoDB）
 # 见 scripts/test_api.py
