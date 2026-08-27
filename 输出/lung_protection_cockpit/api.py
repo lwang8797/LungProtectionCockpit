@@ -36,9 +36,11 @@ from .config import (
     MONGO_URI, MONGO_DB, COLL_RAW, COLL_1MIN, COLL_ALERTS,
     DEVICE_ID, DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS,
     DEFAULT_WINDOW_HOURS,
-    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
-    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
-    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
+    COMPLIANCE_STRATUM_THRESHOLD,
+    CUM_DP_OVER_HOURS_L3, CUM_DP_OVER_HOURS_L4,
+    MP_HIGH_STRATUM_THRESHOLD, MP_LOW_STRATUM_THRESHOLD,
+    CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH,
+    CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
 from .collector import get_db, get_time_range, collect_raw, get_current_work_mode
 from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points
@@ -110,36 +112,65 @@ manager = ConnectionManager()
 
 # ── 累积暴露阈值（随响应下发，前端据此在「设置」中调整；待临床确认）──
 CUM_THRESHOLDS = {
-    "energy_l3_kj": CUM_ENERGY_L3_KJ,
-    "energy_l4_kj": CUM_ENERGY_L4_KJ,
-    "mp_auc_l3_kj": CUM_MP_AUC_L3_KJ,
-    "mp_auc_l4_kj": CUM_MP_AUC_L4_KJ,
-    "dp_auc_l3": CUM_DP_AUC_L3,
-    "dp_auc_l4": CUM_DP_AUC_L4,
+    "dp_over_hours_l3": CUM_DP_OVER_HOURS_L3,
+    "dp_over_hours_l4": CUM_DP_OVER_HOURS_L4,
+    "mp_high_over_hours_l3": CUM_MP_OVER_HOURS_L3_HIGH,
+    "mp_high_over_hours_l4": CUM_MP_OVER_HOURS_L4_HIGH,
+    "mp_low_over_hours_l3": CUM_MP_OVER_HOURS_L3_LOW,
+    "mp_low_over_hours_l4": CUM_MP_OVER_HOURS_L4_LOW,
+    "mp_high_threshold": MP_HIGH_STRATUM_THRESHOLD,
+    "mp_low_threshold": MP_LOW_STRATUM_THRESHOLD,
+    "compliance_stratum": COMPLIANCE_STRATUM_THRESHOLD,
 }
 
 
-def _cumulative_block(cum_dp_auc, cum_mp_auc_j, cum_energy_j, vent_min, cum_risk_level):
-    """构造总览 cumulative 块：原始累积量 + 累积维度风险 + 默认阈值 + 报警标志。"""
-    energy_kj = (cum_energy_j or 0) / 1000.0
-    mp_auc_kj = (cum_mp_auc_j or 0) / 1000.0
-    dp_auc = cum_dp_auc or 0
+def _cumulative_block(s: dict) -> dict:
+    """构造总览 cumulative 块：高暴露小时数 + 顺应性分层 + 累积维度风险 + 默认阈值。
+
+    入参 s:
+      cum_over_minutes: {"dp","mp17","mp18","mp20"}  (高暴露分钟数)
+      compliance_mean, energy_j, cum_auc_above: {"dp","mp17","mp18","mp20"}
+      vent_min, cum_risk
+    """
+    dp_over_min = s["cum_over_minutes"]["dp"] or 0.0
+    mp18 = s["cum_over_minutes"]["mp18"] or 0.0
+    mp20 = s["cum_over_minutes"]["mp20"] or 0.0
+    comp = s.get("compliance_mean") or 0.0
+    stratum = "high" if comp > COMPLIANCE_STRATUM_THRESHOLD else "low"
+
+    dp_over_hours = dp_over_min / 60.0
+    mp_over_hours_high = mp18 / 60.0
+    mp_over_hours_low = mp20 / 60.0
+    mp_over_hours = mp_over_hours_high if stratum == "high" else mp_over_hours_low
+
+    l3 = CUM_MP_OVER_HOURS_L3_HIGH if stratum == "high" else CUM_MP_OVER_HOURS_L3_LOW
+    l4 = CUM_MP_OVER_HOURS_L4_HIGH if stratum == "high" else CUM_MP_OVER_HOURS_L4_LOW
+    mp_thr = MP_HIGH_STRATUM_THRESHOLD if stratum == "high" else MP_LOW_STRATUM_THRESHOLD
+
     return {
-        "energy_j": round(cum_energy_j or 0, 1),
-        "energy_kj": round(energy_kj, 2),
-        "dp_auc": round(cum_dp_auc or 0, 1),
-        "mp_auc_j": round(cum_mp_auc_j or 0, 1),
-        "mp_auc_kj": round(mp_auc_kj, 3),
-        "vent_duration_min": round(vent_min or 0, 1),
-        "risk_level": cum_risk_level,
-        "risk_label": RISK_LABELS.get(cum_risk_level, "L1 正常"),
+        "dp_over_hours": round(dp_over_hours, 2),
+        "mp_over_hours_high": round(mp_over_hours_high, 2),
+        "mp_over_hours_low": round(mp_over_hours_low, 2),
+        "mp_over_hours": round(mp_over_hours, 2),
+        "compliance_stratum": stratum,
+        "compliance_mean": round(comp, 1) if s.get("compliance_mean") else None,
+        "energy_kj": round((s.get("energy_j") or 0) / 1000.0, 2),
+        "dp_auc_above": round(s["cum_auc_above"]["dp"] or 0, 1),
+        "mp_auc_above_17": round(s["cum_auc_above"]["mp17"] or 0, 1),
+        "mp_auc_above_18": round(s["cum_auc_above"]["mp18"] or 0, 1),
+        "mp_auc_above_20": round(s["cum_auc_above"]["mp20"] or 0, 1),
+        "vent_duration_min": round(s.get("vent_min") or 0, 1),
+        "risk_level": s.get("cum_risk", 1),
+        "risk_label": RISK_LABELS.get(s.get("cum_risk", 1), "L1 正常"),
         "thresholds": CUM_THRESHOLDS,
         # 默认阈值下的越限标志（前端会用设置中的 CUM 重新判定）
         "alarms": {
-            "energy_over": energy_kj >= CUM_ENERGY_L3_KJ,
-            "dp_auc_over": dp_auc >= CUM_DP_AUC_L3,
-            "mp_auc_over": mp_auc_kj >= CUM_MP_AUC_L3_KJ,
+            "dp_over": dp_over_hours >= CUM_DP_OVER_HOURS_L3,
+            "mp_over": mp_over_hours >= l3,
         },
+        "_mp_threshold_used": mp_thr,
+        "_mp_l3_used": l3,
+        "_mp_l4_used": l4,
     }
 
 
@@ -180,12 +211,28 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         mp_over_pct = sum(d.get("mp_over_pct", 0) for d in vent_docs) / len(vent_docs) if vent_docs else 0
 
         last_doc = agg_docs[-1]
-        cum_energy = last_doc.get("cumulative_energy", 0)
-        cum_dp_auc = last_doc.get("cumulative_dp_auc", 0)
-        cum_mp_auc = last_doc.get("cumulative_mp_auc", 0)
         vent_min = last_doc.get("vent_duration_min", 0)
         risk = last_doc.get("risk_level", 1)
         cum_risk = last_doc.get("cumulative_risk_level", 1)
+
+        cum_state = {
+            "cum_over_minutes": {
+                "dp": last_doc.get("cum_dp_over_min", 0),
+                "mp17": last_doc.get("cum_mp_over_min_18", 0),
+                "mp18": last_doc.get("cum_mp_over_min_18", 0),
+                "mp20": last_doc.get("cum_mp_over_min_20", 0),
+            },
+            "compliance_mean": last_doc.get("compliance_mean"),
+            "energy_j": last_doc.get("cum_energy", 0),
+            "cum_auc_above": {
+                "dp": last_doc.get("cum_dp_auc_above", 0),
+                "mp17": last_doc.get("cum_mp_auc_above_17", 0),
+                "mp18": last_doc.get("cum_mp_auc_above_18", 0),
+                "mp20": last_doc.get("cum_mp_auc_above_20", 0),
+            },
+            "vent_min": vent_min,
+            "cum_risk": cum_risk,
+        }
 
         return {
             "device": device_id,
@@ -209,9 +256,7 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
                 "threshold": MP_THRESHOLD,
                 "over_pct": round(mp_over_pct, 1),
             },
-            "cumulative": _cumulative_block(
-                cum_dp_auc, cum_mp_auc, cum_energy, vent_min, cum_risk
-            ),
+            "cumulative": _cumulative_block(cum_state),
             "vent_minutes": len(vent_docs),
             "total_minutes": len(agg_docs),
         }
@@ -226,12 +271,18 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     use_rows = vent_rows if vent_rows else rows
     exposure = compute_exposure(use_rows)
 
-    cum_dp_auc = exposure["dp"]["auc"]
-    cum_mp_auc_j = exposure["mp"]["auc"]
-    cum_energy_j = exposure["cumulative_energy_j"]
-    vent_min = len(use_rows) * 4 / 60
     cum_risk = exposure["cumulative_risk_level"]
     risk = max(exposure["risk_level"], cum_risk)
+    vent_min = len(use_rows) * 4 / 60
+
+    cum_state = {
+        "cum_over_minutes": exposure["cum_over_minutes"],
+        "compliance_mean": exposure.get("compliance_mean"),
+        "energy_j": exposure["cum_energy_j"],
+        "cum_auc_above": exposure["cum_auc_above"],
+        "vent_min": vent_min,
+        "cum_risk": cum_risk,
+    }
 
     return {
         "device": device_id,
@@ -255,9 +306,7 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "threshold": MP_THRESHOLD,
             "over_pct": round(exposure["mp"]["over_pct"], 1),
         },
-        "cumulative": _cumulative_block(
-            cum_dp_auc, cum_mp_auc_j, cum_energy_j, vent_min, cum_risk
-        ),
+        "cumulative": _cumulative_block(cum_state),
         "vent_minutes": int(len(use_rows) * 4 / 60),
         "total_minutes": int(len(rows) * 4 / 60),
     }
@@ -304,6 +353,7 @@ async def health_check():
             },
             "thresholds": {"dp": DP_THRESHOLD, "mp": MP_THRESHOLD},
             "cumulative_thresholds": CUM_THRESHOLDS,
+            "compliance_stratum_threshold": COMPLIANCE_STRATUM_THRESHOLD,
             "ws_connected": len(manager.active),
         }
     except Exception as e:

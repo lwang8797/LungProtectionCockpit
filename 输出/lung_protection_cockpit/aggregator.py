@@ -18,9 +18,11 @@ from datetime import datetime, timezone
 from .config import (
     MONGO_URI, MONGO_DB, COLL_1MIN, COLL_ALERTS, COLL_RAW,
     DEVICE_ID, DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS,
-    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
-    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
-    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
+    COMPLIANCE_STRATUM_THRESHOLD,
+    CUM_DP_OVER_HOURS_L3, CUM_DP_OVER_HOURS_L4,
+    MP_HIGH_STRATUM_THRESHOLD, MP_LOW_STRATUM_THRESHOLD,
+    CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH,
+    CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
 from .collector import get_db, collect_minute_raw
 from .calculator import (
@@ -91,9 +93,15 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
             "dp_over_count": 0, "dp_over_pct": 0.0, "dp_auc": 0.0,
             "mp_mean": None, "mp_max": None,
             "mp_over_count": 0, "mp_over_pct": 0.0, "mp_auc": 0.0,
-            "cumulative_dp_auc": 0.0,
-            "cumulative_mp_auc": 0.0,
-            "cumulative_energy": 0.0,
+            "cum_dp_over_min": 0.0,
+            "cum_mp_over_min_18": 0.0,
+            "cum_mp_over_min_20": 0.0,
+            "cum_dp_auc_above": 0.0,
+            "cum_mp_auc_above_17": 0.0,
+            "cum_mp_auc_above_18": 0.0,
+            "cum_mp_auc_above_20": 0.0,
+            "cum_energy": 0.0,
+            "compliance_mean": None,
             "vent_duration_min": 0.0,
             "risk_level_instant": 1,
             "cumulative_risk_level": 1,
@@ -119,30 +127,59 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
         )
         # 确保 prev 是更早的分钟
         prev_cum_dp = 0.0
-        prev_cum_mp = 0.0
+        prev_cum_mp_18 = 0.0
+        prev_cum_mp_20 = 0.0
+        prev_cum_dp_auc = 0.0
+        prev_cum_mp_auc_17 = 0.0
+        prev_cum_mp_auc_18 = 0.0
+        prev_cum_mp_auc_20 = 0.0
         prev_cum_energy = 0.0
         prev_vent_min = 0.0
         if prev and prev.get("minute", 0) < minute_start_ts:
-            prev_cum_dp = prev.get("cumulative_dp_auc", 0.0) or 0.0
-            prev_cum_mp = prev.get("cumulative_mp_auc", 0.0) or 0.0
-            prev_cum_energy = prev.get("cumulative_energy", 0.0) or 0.0
+            prev_cum_dp = prev.get("cum_dp_over_min", 0.0) or 0.0
+            prev_cum_mp_18 = prev.get("cum_mp_over_min_18", 0.0) or 0.0
+            prev_cum_mp_20 = prev.get("cum_mp_over_min_20", 0.0) or 0.0
+            prev_cum_dp_auc = prev.get("cum_dp_auc_above", 0.0) or 0.0
+            prev_cum_mp_auc_17 = prev.get("cum_mp_auc_above_17", 0.0) or 0.0
+            prev_cum_mp_auc_18 = prev.get("cum_mp_auc_above_18", 0.0) or 0.0
+            prev_cum_mp_auc_20 = prev.get("cum_mp_auc_above_20", 0.0) or 0.0
+            prev_cum_energy = prev.get("cum_energy", 0.0) or 0.0
             prev_vent_min = prev.get("vent_duration_min", 0.0) or 0.0
 
-        # 本分钟增量
+        # 本分钟增量（来自本分钟窗口的暴露计算）
         dt_min = len(use_rows) * 4 / 60  # 约 15 点 × 4s = 1min
-        inc_energy = (exposure["mp"]["mean"] or 0) * dt_min if exposure["mp"]["mean"] else 0
-        inc_dp_auc = exposure["dp"]["auc"] or 0
-        inc_mp_auc = exposure["mp"]["auc"] or 0
+        inc_dp_over_min = exposure["cum_over_minutes"]["dp"] or 0
+        inc_mp_over_min_17 = exposure["cum_over_minutes"]["mp17"] or 0
+        inc_mp_over_min_18 = exposure["cum_over_minutes"]["mp18"] or 0
+        inc_mp_over_min_20 = exposure["cum_over_minutes"]["mp20"] or 0
+        inc_dp_auc_above = exposure["cum_auc_above"]["dp"] or 0
+        inc_mp_auc_above_17 = exposure["cum_auc_above"]["mp17"] or 0
+        inc_mp_auc_above_18 = exposure["cum_auc_above"]["mp18"] or 0
+        inc_mp_auc_above_20 = exposure["cum_auc_above"]["mp20"] or 0
+        inc_energy = exposure["cum_energy_j"] or 0
 
         # 滚动累积量（通气全程，不随查询窗口截断）
-        cum_dp_auc = prev_cum_dp + inc_dp_auc
-        cum_mp_auc = prev_cum_mp + inc_mp_auc
+        cum_dp_over_min = prev_cum_dp + inc_dp_over_min
+        cum_mp_over_min_18 = prev_cum_mp_18 + inc_mp_over_min_18
+        cum_mp_over_min_20 = prev_cum_mp_20 + inc_mp_over_min_20
+        cum_dp_auc_above = prev_cum_dp_auc + inc_dp_auc_above
+        cum_mp_auc_above_17 = prev_cum_mp_auc_17 + inc_mp_auc_above_17
+        cum_mp_auc_above_18 = prev_cum_mp_auc_18 + inc_mp_auc_above_18
+        cum_mp_auc_above_20 = prev_cum_mp_auc_20 + inc_mp_auc_above_20
         cum_energy = prev_cum_energy + inc_energy
         vent_min_total = prev_vent_min + dt_min
 
-        # 双维度风险：瞬时（单值） + 累积（暴露）
+        # 顺应性分层（用本分钟均值判定当前分层）
+        compliance_mean = exposure.get("compliance_mean")
+        compliance_mean = compliance_mean if (compliance_mean is not None
+                                             and not math.isnan(compliance_mean)) else 0.0
+        stratum = "high" if compliance_mean > COMPLIANCE_STRATUM_THRESHOLD else "low"
+
+        # 双维度风险：瞬时（单值） + 累积（暴露，按高暴露小时数 + 顺应性分层）
         instant_risk = exposure["risk_level"]
-        cumulative_risk = classify_cumulative_risk(cum_dp_auc, cum_mp_auc, cum_energy, vent_min_total)
+        dp_over_hours = cum_dp_over_min / 60.0
+        mp_over_hours = (cum_mp_over_min_18 / 60.0) if stratum == "high" else (cum_mp_over_min_20 / 60.0)
+        cumulative_risk = classify_cumulative_risk(dp_over_hours, mp_over_hours, stratum)
         merged_risk = max(instant_risk, cumulative_risk)
 
         doc = {
@@ -158,16 +195,23 @@ def aggregate_minute(db, device_id: str, minute_start_ts: int) -> dict:
             "dp_max": _nan_to_none(exposure["dp"]["max"]),
             "dp_over_count": exposure["dp"]["over_count"],
             "dp_over_pct": exposure["dp"]["over_pct"],
-            "dp_auc": inc_dp_auc,
+            "dp_auc": inc_dp_auc_above,
             "mp_mean": _nan_to_none(exposure["mp"]["mean"]),
             "mp_max": _nan_to_none(exposure["mp"]["max"]),
             "mp_over_count": exposure["mp"]["over_count"],
             "mp_over_pct": exposure["mp"]["over_pct"],
-            "mp_auc": inc_mp_auc,
-            # 累积
-            "cumulative_dp_auc": cum_dp_auc,
-            "cumulative_mp_auc": cum_mp_auc,
-            "cumulative_energy": cum_energy,
+            "mp_auc": inc_mp_auc_above_17,
+            # 累积暴露（双轨制：高暴露分钟数 / 超阈 AUC / 总机械能 / 顺应性）
+            "cum_dp_over_min": cum_dp_over_min,
+            "cum_mp_over_min_18": cum_mp_over_min_18,
+            "cum_mp_over_min_20": cum_mp_over_min_20,
+            "cum_dp_auc_above": cum_dp_auc_above,
+            "cum_mp_auc_above_17": cum_mp_auc_above_17,
+            "cum_mp_auc_above_18": cum_mp_auc_above_18,
+            "cum_mp_auc_above_20": cum_mp_auc_above_20,
+            "cum_energy": cum_energy,
+            "compliance_mean": _nan_to_none(exposure.get("compliance_mean")),
+            "compliance_stratum": stratum,
             "vent_duration_min": vent_min_total,
             # 风险（双维度合并）
             "risk_level_instant": instant_risk,
@@ -202,7 +246,7 @@ def _check_and_alert(db, device_id: str, ts: int, doc: dict):
 
     预警分两类：
       - category="threshold"  ：瞬时单值越限（ΔP/MP 超过单点阈值）
-      - category="cumulative" ：累积暴露越限（24h 累积 AUC / 机械能超阈值）
+      - category="cumulative" ：累积暴露越限（高暴露小时数超阈值，按顺应性分层）
     两类独立去重、独立存储，互不覆盖。
     """
     risk = doc.get("risk_level", 1)
@@ -239,18 +283,22 @@ def _check_and_alert(db, device_id: str, ts: int, doc: dict):
     if doc.get("mp_over_pct", 0) > 20:
         parts.append(f"MP超阈占比{doc['mp_over_pct']:.0f}%")
 
-    # 累积部分（仅在累积类预警中附上，避免重复干扰）
+    # 累积部分（高暴露小时数 + 顺应性分层）
     cparts = []
     if cum >= 2:
-        energy_kj = (doc.get("cumulative_energy", 0) or 0) / 1000.0
-        mp_auc_kj = (doc.get("cumulative_mp_auc", 0) or 0) / 1000.0
-        dp_auc = doc.get("cumulative_dp_auc", 0) or 0
-        if energy_kj >= CUM_ENERGY_L3_KJ:
-            cparts.append(f"累积机械能{energy_kj:.1f}kJ")
-        if dp_auc >= CUM_DP_AUC_L3:
-            cparts.append(f"ΔP累积AUC{dp_auc:.0f}")
-        if mp_auc_kj >= CUM_MP_AUC_L3_KJ:
-            cparts.append(f"MP累积AUC{mp_auc_kj:.1f}kJ")
+        dp_over_hours = (doc.get("cum_dp_over_min", 0) or 0) / 60.0
+        stratum = doc.get("compliance_stratum", "high")
+        if stratum == "high":
+            mp_over_hours = (doc.get("cum_mp_over_min_18", 0) or 0) / 60.0
+            mp_thr = MP_HIGH_STRATUM_THRESHOLD
+        else:
+            mp_over_hours = (doc.get("cum_mp_over_min_20", 0) or 0) / 60.0
+            mp_thr = MP_LOW_STRATUM_THRESHOLD
+        if dp_over_hours >= CUM_DP_OVER_HOURS_L3:
+            cparts.append(f"ΔP高暴露{dp_over_hours:.1f}h")
+        if mp_over_hours >= (CUM_MP_OVER_HOURS_L3_HIGH if stratum == "high"
+                             else CUM_MP_OVER_HOURS_L3_LOW):
+            cparts.append(f"MP≥{mp_thr:.0f}高暴露{mp_over_hours:.1f}h({stratum}顺应性)")
 
     if category == "cumulative":
         # 累积类：以累积原因为主
@@ -276,9 +324,11 @@ def _check_and_alert(db, device_id: str, ts: int, doc: dict):
         "mp_max": doc.get("mp_max"),
         "dp_over_pct": doc.get("dp_over_pct", 0),
         "mp_over_pct": doc.get("mp_over_pct", 0),
-        "cumulative_energy_j": doc.get("cumulative_energy"),
-        "cumulative_dp_auc": doc.get("cumulative_dp_auc"),
-        "cumulative_mp_auc": doc.get("cumulative_mp_auc"),
+        "cum_dp_over_min": doc.get("cum_dp_over_min"),
+        "cum_mp_over_min_18": doc.get("cum_mp_over_min_18"),
+        "cum_mp_over_min_20": doc.get("cum_mp_over_min_20"),
+        "cum_energy_j": doc.get("cum_energy"),
+        "compliance_stratum": doc.get("compliance_stratum"),
     }
     db[COLL_ALERTS].insert_one(alert)
     logger.info(f"预警写入[{category}]: {alert['message']} @ {alert['tsISO']}")

@@ -277,12 +277,16 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
             <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
           </h3>
           <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
+            <div class="pcell"><div class="k">ΔP 高暴露时长</div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
+            <div class="pcell"><div class="k">MP 高暴露时长</div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
             <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
-            <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·min</small></div></div>
-            <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>kJ</small></div></div>
             <div class="pcell"><div class="k">通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
           </div>
-          <div class="note">累积维度风险：<b id="cumRiskText">L1 正常</b>　·　评级 = max(瞬时单值维度, 累积暴露维度)</div>
+          <div class="note">
+            累积维度风险：<b id="cumRiskText">L1 正常</b>　·
+            顺应性分层：<b id="cumStratum">--</b>（CRS=<span id="cumComp">--</span> mL/cmH₂O，分界 32.7）　·
+            评级 = max(瞬时单值维度, 累积暴露维度)
+          </div>
         </div>
 
         <div class="card band-card">
@@ -446,34 +450,37 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
                 <span class="hint" style="margin-left:auto;">保守默认 · 医师权限 + 二次确认 · 自动审计</span>
               </h3>
               <div class="set-row">
-                <div class="lab">累积机械能 L3<small>默认 50 kJ · 24h 窗口 · 范围 10–200</small></div>
-                <input type="range" id="sldCumEngL3" min="10" max="200" step="5" value="50">
-                <div class="set-val" id="sldCumEngL3V">50</div>
+                <div class="lab">ΔP 高暴露 L3<small>默认 2 h（ΔP≥15cmH₂O）· 范围 1–12</small></div>
+                <input type="range" id="sldCumDpL3" min="1" max="12" step="1" value="2">
+                <div class="set-val" id="sldCumDpL3V">2</div>
               </div>
               <div class="set-row">
-                <div class="lab">累积机械能 L4<small>默认 100 kJ · 范围 20–400</small></div>
-                <input type="range" id="sldCumEngL4" min="20" max="400" step="10" value="100">
-                <div class="set-val" id="sldCumEngL4V">100</div>
+                <div class="lab">ΔP 高暴露 L4<small>默认 6 h · 范围 2–24</small></div>
+                <input type="range" id="sldCumDpL4" min="2" max="24" step="1" value="6">
+                <div class="set-val" id="sldCumDpL4V">6</div>
               </div>
               <div class="set-row">
-                <div class="lab">ΔP 超阈 AUC L3<small>默认 1500 cmH₂O·min · 范围 200–5000</small></div>
-                <input type="range" id="sldCumDpL3" min="200" max="5000" step="100" value="1500">
-                <div class="set-val" id="sldCumDpL3V">1500</div>
+                <div class="lab">MP 高顺应性 高暴露 L3<small>默认 2 h（MP≥18, CRS>32.7）· 范围 1–12</small></div>
+                <input type="range" id="sldCumMpHH3" min="1" max="12" step="1" value="2">
+                <div class="set-val" id="sldCumMpHH3V">2</div>
               </div>
               <div class="set-row">
-                <div class="lab">ΔP 超阈 AUC L4<small>默认 3000 cmH₂O·min · 范围 500–10000</small></div>
-                <input type="range" id="sldCumDpL4" min="500" max="10000" step="200" value="3000">
-                <div class="set-val" id="sldCumDpL4V">3000</div>
+                <div class="lab">MP 高顺应性 高暴露 L4<small>默认 6 h · 范围 2–24</small></div>
+                <input type="range" id="sldCumMpHH4" min="2" max="24" step="1" value="6">
+                <div class="set-val" id="sldCumMpHH4V">6</div>
               </div>
               <div class="set-row">
-                <div class="lab">MP 超阈 AUC L3<small>默认 1.5 kJ · 范围 0.5–10</small></div>
-                <input type="range" id="sldCumMpL3" min="0.5" max="10" step="0.5" value="1.5">
-                <div class="set-val" id="sldCumMpL3V">1.5</div>
+                <div class="lab">MP 低顺应性 高暴露 L3<small>默认 12 h（MP≥20, CRS≤32.7）· 范围 2–36</small></div>
+                <input type="range" id="sldCumMpLH3" min="2" max="36" step="1" value="12">
+                <div class="set-val" id="sldCumMpLH3V">12</div>
               </div>
               <div class="set-row">
-                <div class="lab">MP 超阈 AUC L4<small>默认 3.0 kJ · 范围 1–20</small></div>
-                <input type="range" id="sldCumMpL4" min="1" max="20" step="1" value="3">
-                <div class="set-val" id="sldCumMpL4V">3.0</div>
+                <div class="lab">MP 低顺应性 高暴露 L4<small>默认 24 h · 范围 4–72</small></div>
+                <input type="range" id="sldCumMpLH4" min="4" max="72" step="1" value="24">
+                <div class="set-val" id="sldCumMpLH4V">24</div>
+              </div>
+              <div class="note" style="grid-column:1/-1;margin:2px 0 0;">
+                累积暴露度量 = <b>高暴露小时数</b>（高暴露分钟数 ÷ 60，1 分钟聚合）。MP 阈值固定 18/20 J/min，顺应性分界 32.7 mL/cmH₂O（CRS = VT / ΔP），均可在后端 config 调整。
               </div>
               <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
                 <button class="btn" onclick="resetCumTh()">恢复默认</button>
@@ -546,7 +553,14 @@ var changePts = [];   // CUSUM change points
 var alerts = [];      // alert list
 var TH = { dp:15.0, mp:17.0 };
 // 累积暴露阈值（默认随后端下发，可在「设置」中调整，待临床确认）
-var CUM = { energyL3:50, energyL4:100, dpAucL3:1500, dpAucL4:3000, mpAucL3:1.5, mpAucL4:3.0 };
+// 度量：高暴露小时数（分钟累积 / 60）；MP 按顺应性分层
+var CUM = {
+  dpOverH3:2, dpOverH4:6,                 // ΔP 高暴露 L3/L4（h），阈值 15
+  mpHighH3:2, mpHighH4:6,                 // MP 高顺应性 高暴露 L3/L4（h），MP≥18
+  mpLowH3:12, mpLowH4:24,                 // MP 低顺应性 高暴露 L3/L4（h），MP≥20
+  mpHighTh:18, mpLowTh:20,                // MP 分层阈值
+  compStratum:32.7                        // 顺应性分层分界 mL/cmH2O
+};
 var CUM_DEFAULT = Object.assign({}, CUM);
 var CUM_SEEDED = false;
 var curWin = {dp:1440, mp:1440};
@@ -576,14 +590,16 @@ function riskLabel(r){
 }
 
 // ==================== Cumulative Exposure ====================
-// 累积维度风险：累积机械能(kJ) / MP 超阈 AUC(kJ) / ΔP 超阈 AUC(cmH2O·min) 越过 L3/L4
+// 累积维度风险：高暴露小时数（ΔP 轨道 + MP 轨道按顺应性分层）越过 L3/L4
 function evalCumulative(cum){
   if(!cum) return 1;
-  var e = cum.energy_kj != null ? cum.energy_kj : (cum.energy_j||0)/1000;
-  var m = cum.mp_auc_kj != null ? cum.mp_auc_kj : (cum.mp_auc_j||0)/1000;
-  var d = cum.dp_auc || 0;
-  if(e>=CUM.energyL4 || m>=CUM.mpAucL4 || d>=CUM.dpAucL4) return 4;
-  if(e>=CUM.energyL3 || m>=CUM.mpAucL3 || d>=CUM.dpAucL3) return 3;
+  var dp = cum.dp_over_hours || 0;
+  var stratum = cum.compliance_stratum || 'high';
+  var mp = stratum==='low' ? (cum.mp_over_hours_low||0) : (cum.mp_over_hours_high||0);
+  var mpH3 = stratum==='low' ? CUM.mpLowH3 : CUM.mpHighH3;
+  var mpH4 = stratum==='low' ? CUM.mpLowH4 : CUM.mpHighH4;
+  if(dp>=CUM.dpOverH4 || mp>=mpH4) return 4;
+  if(dp>=CUM.dpOverH3 || mp>=mpH3) return 3;
   return 1;
 }
 function setCumCell(id, val, unit, l3, l4, dec){
@@ -595,10 +611,19 @@ function setCumCell(id, val, unit, l3, l4, dec){
 }
 function fillCumCard(cum){
   if(!cum) return;
-  setCumCell('cumEnergy', cum.energy_kj!=null?cum.energy_kj:(cum.energy_j||0)/1000, 'kJ', CUM.energyL3, CUM.energyL4, 1);
-  setCumCell('cumDpAuc', cum.dp_auc, 'cmH₂O·min', CUM.dpAucL3, CUM.dpAucL4, 0);
-  setCumCell('cumMpAuc', cum.mp_auc_kj!=null?cum.mp_auc_kj:(cum.mp_auc_j||0)/1000, 'kJ', CUM.mpAucL3, CUM.mpAucL4, 2);
+  var stratum = cum.compliance_stratum || 'high';
+  setCumCell('cumDpOver', cum.dp_over_hours, 'h', CUM.dpOverH3, CUM.dpOverH4, 1);
+  var mpOver = stratum==='low' ? cum.mp_over_hours_low : cum.mp_over_hours_high;
+  var mpTh = stratum==='low' ? CUM.mpLowTh : CUM.mpHighTh;
+  var mpH3 = stratum==='low' ? CUM.mpLowH3 : CUM.mpHighH3;
+  var mpH4 = stratum==='low' ? CUM.mpLowH4 : CUM.mpHighH4;
+  setCumCell('cumMpOver', mpOver, 'h', mpH3, mpH4, 1);
+  setCumCell('cumEnergy', cum.energy_kj, 'kJ', null, null, 1);
   document.getElementById('cumVentDur').innerHTML = fmtDur(cum.vent_duration_min||0);
+  var se = document.getElementById('cumStratum');
+  if(se) se.textContent = (stratum==='low'?'低顺应性':'高顺应性') + (mpTh?('（MP≥'+mpTh+'）'):'');
+  var ce = document.getElementById('cumComp');
+  if(ce) ce.textContent = cum.compliance_mean!=null ? cum.compliance_mean.toFixed(1) : '--';
   var r = evalCumulative(cum);
   var cre = document.getElementById('cumRiskText');
   cre.textContent = riskLabel(r);
@@ -920,9 +945,9 @@ function nowStamp(){
 }
 function syncCumSliders(){
   var map = {
-    sldCumEngL3:['sldCumEngL3V', CUM.energyL3, 0], sldCumEngL4:['sldCumEngL4V', CUM.energyL4, 0],
-    sldCumDpL3:['sldCumDpL3V', CUM.dpAucL3, 0], sldCumDpL4:['sldCumDpL4V', CUM.dpAucL4, 0],
-    sldCumMpL3:['sldCumMpL3V', CUM.mpAucL3, 1], sldCumMpL4:['sldCumMpL4V', CUM.mpAucL4, 1]
+    sldCumDpL3:['sldCumDpL3V', CUM.dpOverH3, 0], sldCumDpL4:['sldCumDpL4V', CUM.dpOverH4, 0],
+    sldCumMpHH3:['sldCumMpHH3V', CUM.mpHighH3, 0], sldCumMpHH4:['sldCumMpHH4V', CUM.mpHighH4, 0],
+    sldCumMpLH3:['sldCumMpLH3V', CUM.mpLowH3, 0], sldCumMpLH4:['sldCumMpLH4V', CUM.mpLowH4, 0]
   };
   for(var id in map){
     var el=document.getElementById(id); if(!el) continue;
@@ -930,17 +955,17 @@ function syncCumSliders(){
     document.getElementById(map[id][0]).textContent = (+map[id][1]).toFixed(map[id][2]);
   }
 }
-['sldCumEngL3','sldCumEngL4','sldCumDpL3','sldCumDpL4','sldCumMpL3','sldCumMpL4'].forEach(function(id){
+['sldCumDpL3','sldCumDpL4','sldCumMpHH3','sldCumMpHH4','sldCumMpLH3','sldCumMpLH4'].forEach(function(id){
   var el=document.getElementById(id); if(!el) return;
   el.oninput=function(){
     var v=+this.value;
-    if(id==='sldCumEngL3') CUM.energyL3=v;
-    else if(id==='sldCumEngL4') CUM.energyL4=v;
-    else if(id==='sldCumDpL3') CUM.dpAucL3=v;
-    else if(id==='sldCumDpL4') CUM.dpAucL4=v;
-    else if(id==='sldCumMpL3') CUM.mpAucL3=v;
-    else if(id==='sldCumMpL4') CUM.mpAucL4=v;
-    var vEl=document.getElementById(id+'V'); if(vEl) vEl.textContent = v.toFixed(id.indexOf('Mp')>=0?1:0);
+    if(id==='sldCumDpL3') CUM.dpOverH3=v;
+    else if(id==='sldCumDpL4') CUM.dpOverH4=v;
+    else if(id==='sldCumMpHH3') CUM.mpHighH3=v;
+    else if(id==='sldCumMpHH4') CUM.mpHighH4=v;
+    else if(id==='sldCumMpLH3') CUM.mpLowH3=v;
+    else if(id==='sldCumMpLH4') CUM.mpLowH4=v;
+    var vEl=document.getElementById(id+'V'); if(vEl) vEl.textContent = v.toFixed(0);
     if(ovData) updateOverviewUI(ovData);
   };
 });
@@ -952,10 +977,11 @@ function resetCumTh(){
 }
 function askSaveCumTh(){
   document.getElementById('modalTxt').innerHTML=
-    '累积机械能 L3/L4：<b>'+CUM.energyL3+' / '+CUM.energyL4+' kJ</b><br>'+
-    'ΔP 超阈 AUC L3/L4：<b>'+CUM.dpAucL3+' / '+CUM.dpAucL4+' cmH₂O·min</b><br>'+
-    'MP 超阈 AUC L3/L4：<b>'+CUM.mpAucL3+' / '+CUM.mpAucL4+' kJ</b><br><br>'+
-    '⚠ 累积暴露阈值尚待临床确认；变更将影响累积维度评级与预警，并记入审计日志。';
+    'ΔP 高暴露 L3/L4：<b>'+CUM.dpOverH3+' / '+CUM.dpOverH4+' h</b>（ΔP≥15）<br>'+
+    'MP 高顺应性 高暴露 L3/L4：<b>'+CUM.mpHighH3+' / '+CUM.mpHighH4+' h</b>（MP≥'+CUM.mpHighTh+'）<br>'+
+    'MP 低顺应性 高暴露 L3/L4：<b>'+CUM.mpLowH3+' / '+CUM.mpLowH4+' h</b>（MP≥'+CUM.mpLowTh+'）<br>'+
+    '顺应性分界：<b>'+CUM.compStratum+' mL/cmH₂O</b><br><br>'+
+    '⚠ 累积暴露阈值尚待临床最终确认；变更将影响累积维度评级与预警，并记入审计日志。';
   document.getElementById('modal').classList.add('on');
   pendingCumSave = true;
 }
@@ -963,7 +989,7 @@ document.getElementById('modalOk').onclick=function(){
   if(pendingCumSave){
     pendingCumSave=false;
     var tr=document.getElementById('auditBody');
-    tr.innerHTML='<tr><td>'+nowStamp()+'</td><td>操作员</td><td>累积暴露阈值</td><td>默认</td><td><b>'+CUM.energyL3+'/'+CUM.energyL4+' kJ · '+CUM.dpAucL3+'/'+CUM.dpAucL4+' · '+CUM.mpAucL3+'/'+CUM.mpAucL4+' kJ</b></td><td>个体化调整（待临床确认）</td></tr>'+tr.innerHTML;
+    tr.innerHTML='<tr><td>'+nowStamp()+'</td><td>操作员</td><td>累积暴露阈值</td><td>默认</td><td><b>ΔP '+CUM.dpOverH3+'/'+CUM.dpOverH4+'h · MP高 '+CUM.mpHighH3+'/'+CUM.mpHighH4+'h · MP低 '+CUM.mpLowH3+'/'+CUM.mpLowH4+'h</b></td><td>个体化调整（待临床确认）</td></tr>'+tr.innerHTML;
     closeModal(); if(ovData) updateOverviewUI(ovData); toast('累积阈值已更新，总览已重新计算');
     return;
   }
@@ -1058,7 +1084,13 @@ function updateOverviewUI(d){
   // 累积阈值种子（首次从后端下发；之后以「设置」中的 CUM 为准）
   if(!CUM_SEEDED && d.cumulative && d.cumulative.thresholds){
     var t = d.cumulative.thresholds;
-    CUM = { energyL3:t.energy_l3_kj, energyL4:t.energy_l4_kj, dpAucL3:t.dp_auc_l3, dpAucL4:t.dp_auc_l4, mpAucL3:t.mp_auc_l3_kj, mpAucL4:t.mp_auc_l4_kj };
+    CUM = {
+      dpOverH3:t.dp_over_hours_l3, dpOverH4:t.dp_over_hours_l4,
+      mpHighH3:t.mp_high_over_hours_l3, mpHighH4:t.mp_high_over_hours_l4,
+      mpLowH3:t.mp_low_over_hours_l3, mpLowH4:t.mp_low_over_hours_l4,
+      mpHighTh:t.mp_high_threshold, mpLowTh:t.mp_low_threshold,
+      compStratum:t.compliance_stratum
+    };
     CUM_DEFAULT = Object.assign({}, CUM);
     CUM_SEEDED = true;
     syncCumSliders();
@@ -1105,9 +1137,12 @@ function updateOverviewUI(d){
       if(mtOver) reasons.push('MP 单值超限 '+d.mp.current.toFixed(2)+'/'+d.mp.threshold);
       if(cumRisk >= 3 && d.cumulative){
         var cs = [];
-        if(d.cumulative.energy_kj >= CUM.energyL3) cs.push('累积机械能 '+d.cumulative.energy_kj.toFixed(1)+'kJ');
-        if(d.cumulative.dp_auc >= CUM.dpAucL3) cs.push('ΔP累积AUC '+d.cumulative.dp_auc.toFixed(0));
-        if(d.cumulative.mp_auc_kj >= CUM.mpAucL3) cs.push('MP累积AUC '+d.cumulative.mp_auc_kj.toFixed(2)+'kJ');
+        if(d.cumulative.dp_over_hours >= CUM.dpOverH3) cs.push('ΔP高暴露 '+d.cumulative.dp_over_hours.toFixed(1)+'h');
+        var cstr = d.cumulative.compliance_stratum || 'high';
+        var cMpOver = cstr==='low' ? (d.cumulative.mp_over_hours_low||0) : (d.cumulative.mp_over_hours_high||0);
+        var cMpH3 = cstr==='low' ? CUM.mpLowH3 : CUM.mpHighH3;
+        var cMpTh = cstr==='low' ? CUM.mpLowTh : CUM.mpHighTh;
+        if(cMpOver >= cMpH3) cs.push('MP≥'+cMpTh+'高暴露 '+cMpOver.toFixed(1)+'h('+cstr+'顺应性)');
         if(cs.length) reasons.push('累积暴露越限（'+cs.join('、')+'）');
       }
       if(alarmText) alarmText.textContent = reasons.join(' · ');

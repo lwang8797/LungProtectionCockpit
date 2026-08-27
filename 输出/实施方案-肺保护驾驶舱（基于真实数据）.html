@@ -443,8 +443,8 @@ WantedBy=multi-user.target</code></pre>
 
 <hr>
 
-<h2>9. 修改规划（已实施 · 2026-08-27）：累积暴露报警接入总览页</h2>
-<div class="note">本节方案已落地。用户确认采用「双维度合并风险」；累积暴露阈值按用户要求<b>保留在「设置」页、可随时设置与修改</b>，当前为保守默认、<b>待临床（医师）确认</b>。</div>
+<h2>9. 累积暴露报警接入总览页（已实施 · 2026-08-27，方法据医师文献精读 v3）</h2>
+<div class="note">本节方案已落地。用户确认采用「双维度合并风险」；累积暴露阈值按用户要求<b>保留在「设置」页、可随时设置与修改</b>，当前为保守默认、<b>待临床（医师）最终确认</b>。2026-08-27 医师反馈的文献精读（水相《ΔP/MP 暴露累积原始文献与实现逻辑》）将累积暴露度量由"总机械能/总AUC"修正为"<b>高暴露小时数 + 顺应性分层</b>"，并明确 MP 公式优先静态 ΔP，本版已据此实现。</div>
 
 <h3>9.1 目标</h3>
 <p>让总览页的 ΔP/MP 风险评级与报警，同时反映「瞬时单值阈值」与「累积暴露」两个维度；后端预警区分 <code>threshold</code>（单值越限）与 <code>cumulative</code>（累积暴露越限）两类，使项目定位（ΔP/MP 累积暴露）与总览行为一致。</p>
@@ -452,45 +452,58 @@ WantedBy=multi-user.target</code></pre>
 <h3>9.2 总体设计：双维度、合并风险</h3>
 <table>
 <tr><th>维度</th><th>输入</th><th>判定</th></tr>
-<tr><td>瞬时维度（已有）</td><td>dp_max / mp_max / over_pct</td><td>单值阈值 → L1–L4</td></tr>
-<tr><td>累积维度（新增）</td><td>cumulative_dp_auc / cumulative_mp_auc / cumulative_energy / vent_duration_min</td><td>累积阈值 → L1–L4</td></tr>
-<tr><td><b>合并</b></td><td>—</td><td><code>risk_level = max(瞬时, 累积)</code>（任一维度危险即危险；避免单点尖峰或缓慢侵蚀被漏报）</td></tr>
+<tr><td>瞬时维度（已有）</td><td>dp_max / mp_max / over_pct</td><td>单值阈值 → L1–L4（超阈占比>20%→L3、>50%→L4）</td></tr>
+<tr><td>累积维度（双轨）</td><td>ΔP 高暴露小时数；MP 高暴露小时数（按顺应性分层）</td><td>高暴露小时数越过 L3/L4 → L1/L3/L4</td></tr>
+<tr><td><b>合并</b></td><td>—</td><td><code>risk_level = max(瞬时, 累积)</code>（任一维度危险即危险）</td></tr>
 </table>
 
-<h3>9.3 改动清单</h3>
+<h3>9.3 累积暴露度量（据 2026-08-27 文献精读）</h3>
+<ul>
+<li><b>度量 = 高暴露小时数</b>：1 分钟聚合下累加"指标≥阈值的分钟数"，÷60 得小时数。文献最小时间单位=小时（Lijovic 2026 / Tan 2024），无"连续 N 分钟"直接文献支持。</li>
+<li><b>ΔP 轨道</b>：阈值统一 15 cmH₂O（Amato 2015）；高暴露 ≥2h → L3、≥6h → L4（Lijovic 2026 高顺应性类推）。</li>
+<li><b>MP 轨道（顺应性分层，Lijovic 2026）</b>：CRS = Vte / ΔP，分界 32.7 mL/cmH₂O。
+  <ul>
+    <li>高顺应性（CRS&gt;32.7）：MP≥18 且 高暴露 ≥2h → L3、≥6h → L4；</li>
+    <li>低顺应性（CRS≤32.7）：MP≥20 且 高暴露 ≥12h → L3、≥24h → L4。</li>
+  </ul>
+</li>
+<li><b>MP 公式</b>：Gattinoni 标准 <code>0.098·RR·VT·(Ppeak−0.5·ΔP)</code>，ΔP 优先取静态（Pplat−PEEP），无 Pplat 时回退设备直读/动态 ΔP。</li>
+<li><b>辅助指标</b>：超阈 AUC（ΔP/MP）、总机械能（kJ）、% 时间超阈，用于展示与核查（不直接驱动风险）。</li>
+</ul>
+
+<h3>9.4 改动清单（v3 已落地）</h3>
 <h4>后端（config.py / calculator.py / aggregator.py / api.py）</h4>
 <ul>
-<li><b>config.py</b>：新增累积暴露阈值常量（见 9.4），与 DP_THRESHOLD/MP_THRESHOLD 并列，均可在设置页调整。</li>
-<li><b>calculator.py</b>：新增 <code>classify_cumulative_risk(cum_dp_auc, cum_mp_auc, cum_energy, vent_min)</code>；在 <code>compute_exposure</code> 返回中补充 <code>cumulative_risk_level</code>；<code>classify_risk</code> 改为返回 <code>max(瞬时, 累积)</code>。</li>
-<li><b>aggregator.py</b>：存储 <code>cumulative_risk_level</code>；<code>_check_and_alert</code> 增加 <code>category</code> 字段（"threshold" | "cumulative"），累积越限时发独立预警，文案如「ΔP 累积 AUC 123 cmH₂O·min 超阈值」；5 分钟去重按 (risk_level, category) 区分。</li>
-<li><b>api.py</b>：<code>/api/overview</code> 的 <code>cumulative</code> 内补充 <code>cumulative_risk_level</code> 与各类 <code>alarm</code> 标志位（如 <code>dp_cum_over</code>、<code>mp_cum_over</code>）。</li>
+<li><b>config.py</b>：累积暴露阈值改为高暴露小时数 + 顺应性分层（见 9.5）。</li>
+<li><b>calculator.py</b>：<code>calculate_dp</code> 静态优先；<code>compute_exposure</code> 计算高暴露分钟数(dp/mp17/18/20)、超阈 AUC、总机械能、顺应性均值；<code>classify_cumulative_risk(dp_over_hours, mp_over_hours, stratum)</code> 按轨道+分层判定 L1/L3/L4。</li>
+<li><b>aggregator.py</b>：每分钟滚动累积新字段（cum_dp_over_min / cum_mp_over_min_18/20 / cum_*_auc_above / cum_energy / compliance_mean），合并风险按顺应性分层；<code>_check_and_alert</code> 累积文案改为高暴露小时数+分层。</li>
+<li><b>api.py</b>：<code>/api/overview</code> 与 <code>/ws</code> 的 <code>cumulative</code> 块改为高暴露小时数 + 顺应性分层 + 默认阈值，两条路径一致。</li>
 </ul>
 <h4>前端（cockpit_frontend.html）</h4>
 <ul>
-<li><b>总览页新增「累积暴露」卡片/指标组</b>：展示 cumulative_dp_auc、cumulative_mp_auc、cumulative_energy、vent_duration_min 及其相对累积阈值的状态色（绿/黄/橙/红）。</li>
-<li><b>风险评级/报警条幅/风险芯片</b>：采用后端合并后的 <code>risk_level</code>（已含累积维度），条幅文案区分「单值越限」「累积暴露越限」。</li>
-<li><b>24h 时间带图例</b>：当前标注「实时值 + 累积暴露指标组合判定」——修正为真实生效（合并风险），或如实改为「实时值 / 累积暴露」。</li>
-<li><b>预警中心</b>：来自 /api/alerts 的累积类预警自动显示，可加筛选标签（单值/累积）。</li>
-<li><b>设置页</b>：新增累积阈值滑动条（与单值阈值同款医师权限 + 二次确认 + 审计）。</li>
+<li><b>总览页「累积暴露」卡片</b>：展示 ΔP/MP 高暴露时长(h)、累积机械能(kJ)、通气时长，及顺应性分层徽标（高/低 + CRS）。</li>
+<li><b>风险评级/报警条幅/风险芯片</b>：采用合并风险，文案区分「单值越限」「累积暴露越限（高暴露 Xh）」。</li>
+<li><b>预警中心</b>：累积类预警自动显示并可按"累积类"筛选。</li>
+<li><b>设置页</b>：6 个累积阈值滑动条（ΔP L3/L4、MP 高顺应性 L3/L4、MP 低顺应性 L3/L4）+ 顺应性分层说明，医师权限 + 二次确认 + 审计。</li>
 </ul>
 
-<h3>9.4 累积暴露阈值（关键 · 待临床确认 ⚠）</h3>
+<h3>9.5 累积暴露阈值（保守默认 · 待临床最终确认 ⚠）</h3>
 <div class="warn">
-<b>临床依据说明：</b> 单值阈值（ΔP≥15、MP≥17）有循证支持；但<b>「累积暴露」的报警阈值目前缺乏统一临床标准</b>，需医师确认或采用保守默认。下表为<b>已实施的保守默认（24h 窗口）</b>，已在 config.py 定义并可在前端「设置」页随时调整：
+<b>临床依据：</b> 单值阈值（ΔP≥15、MP≥17）有循证；累积维度依据 2026-08-27 文献精读（Lijovic 2026 等）。下表为<b>已实施的保守默认</b>，在 config.py 定义并可在前端「设置」页随时调整：
 <table>
-<tr><th>指标</th><th>窗口</th><th>已实施默认值</th><th>含义/触发</th></tr>
-<tr><td>cumulative_energy（累积机械能）</td><td>24h</td><td>L3 = 50 kJ、L4 = 100 kJ</td><td>全天能量负荷；≈ 阈值(17 J/min)持续一天 ≈ 24.5 kJ，2–4 倍作分级参考</td></tr>
-<tr><td>cumulative_mp_auc（MP 超阈 AUC）</td><td>24h</td><td>L3 = 1.5 kJ、L4 = 3.0 kJ</td><td>MP 超出 17 的累积量（单位 kJ）</td></tr>
-<tr><td>cumulative_dp_auc（ΔP 超阈 AUC）</td><td>24h</td><td>L3 = 1500、L4 = 3000（cmH₂O·min）</td><td>ΔP 超出 15 的累积量</td></tr>
+<tr><th>轨道</th><th>条件</th><th>L3</th><th>L4</th></tr>
+<tr><td>ΔP</td><td>ΔP≥15 高暴露小时数</td><td>2 h</td><td>6 h</td></tr>
+<tr><td>MP（高顺应性 CRS&gt;32.7）</td><td>MP≥18 高暴露小时数</td><td>2 h</td><td>6 h</td></tr>
+<tr><td>MP（低顺应性 CRS≤32.7）</td><td>MP≥20 高暴露小时数</td><td>12 h</td><td>24 h</td></tr>
 </table>
-<b>实施约定：</b> (a) 已采用「双维度合并风险」<code>risk_level = max(瞬时, 累积)</code>； (b) 阈值使用上述保守默认，<b>保留在「设置」页，医师可随时修改并写入审计日志</b>（前端实时重算合并风险与报警）； (c) 窗口统一 24h（累积量为通气全程滚动累计，不随查询窗口截断）。<b>待医师确认后替换默认值。</b>
+<b>实施约定：</b> (a) 「双维度合并风险」<code>risk_level = max(瞬时, 累积)</code>； (b) 阈值保留在「设置」页，医师可随时修改并写入审计日志（前端实时重算）； (c) MP 阈值固定 18/20 J/min、顺应性分界 32.7 mL/cmH₂O，亦可在后端 config 调整。<b>待医师最终确认后替换默认值。</b>
 </div>
 
-<h3>9.5 测试与文档</h3>
+<h3>9.6 测试与文档</h3>
 <ul>
-<li><b>scripts/test_cumulative_logic.py（新增，离线可跑）</b>：覆盖 classify_cumulative_risk 的 L1/L3/L4 边界、compute_exposure 双维度输出，以及「低瞬时 / 高累积」场景（验证累积维度独立将评级拉升至 L3，缺口已修复）。全部 18 例通过。</li>
-<li>scripts/test_api.py：总览端点断言新增 <code>risk_level_instant</code> / <code>cumulative_risk_level</code> / <code>cumulative</code> 字段。</li>
-<li>更新本实施方案（本节）、README，使「累积暴露报警」与实际行为一致。</li>
+<li><b>scripts/test_cumulative_logic.py（离线可跑）</b>：覆盖 classify_cumulative_risk 的 L1/L3/L4 边界（含高/低顺应性分层）、compute_exposure 双维度输出，以及「低瞬时 / 高累积」场景（验证累积维度独立将评级拉升至 L3，缺口已修复）。全部 19 例通过。</li>
+<li>scripts/test_api.py：总览端点断言包含 cumulative 块字段。</li>
+<li>更新本实施方案（本节）、README（含前后端启动说明），使「累积暴露报警」与实际行为一致。</li>
 <li>回归：单值越限仍正常报警（category="threshold"），累积越限独立报警（category="cumulative"），两类预警按 (risk_level, category) 去重、互不覆盖。</li>
 </ul>
 

@@ -9,24 +9,30 @@ from typing import Optional
 
 from .config import (
     DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS, SAMPLE_INTERVAL_S,
-    CUM_ENERGY_L3_KJ, CUM_ENERGY_L4_KJ,
-    CUM_MP_AUC_L3_KJ, CUM_MP_AUC_L4_KJ,
-    CUM_DP_AUC_L3, CUM_DP_AUC_L4,
+    COMPLIANCE_STRATUM_THRESHOLD,
+    CUM_DP_OVER_HOURS_L3, CUM_DP_OVER_HOURS_L4,
+    MP_HIGH_STRATUM_THRESHOLD, MP_LOW_STRATUM_THRESHOLD,
+    CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH,
+    CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
 
 
 def calculate_dp(row: dict) -> float:
     """
     计算 ΔP（驱动压）。
-    优先用设备直读 DrivePress，否则用 Pplat - PEEP。
+    优先静态 ΔP = Pplat - PEEP（文献首选），回退设备直读 DrivePress（动态），
+    再回退动态 ΔP = Ppeak - PEEP。
     """
-    dp = row.get("DrivePress", float("nan"))
-    if not math.isnan(dp):
-        return dp
     plat = row.get("Pplat", float("nan"))
     peep = row.get("PEEP", float("nan"))
     if not math.isnan(plat) and not math.isnan(peep):
         return plat - peep
+    dp = row.get("DrivePress", float("nan"))
+    if not math.isnan(dp):
+        return dp
+    pip = row.get("PIP", float("nan"))
+    if not math.isnan(pip) and not math.isnan(peep):
+        return pip - peep
     return float("nan")
 
 
@@ -74,15 +80,31 @@ def filter_ventilated(rows: list) -> tuple:
     return vent, standby
 
 
+def _above_minutes(v0, v1, dt_min, thr):
+    """区间 [v0,v1]（时长 dt_min 分钟）内"值≥thr"的分钟数（梯形风格）。"""
+    if math.isnan(v0) or math.isnan(v1):
+        return 0.0
+    if v0 >= thr and v1 >= thr:
+        return dt_min
+    if v0 < thr and v1 < thr:
+        return 0.0
+    return dt_min / 2.0
+
+
+def _auc_above(v0, v1, dt_min, thr):
+    """区间 [v0,v1]（时长 dt_min 分钟）内 (值−thr) 的梯形 AUC。"""
+    if math.isnan(v0) or math.isnan(v1):
+        return 0.0
+    e0, e1 = max(0.0, v0 - thr), max(0.0, v1 - thr)
+    return (e0 + e1) / 2.0 * dt_min
+
+
 def compute_exposure(rows: list) -> dict:
     """
-    计算累积暴露指标：均值/最大/超阈占比/AUC/累积能量/风险评级。
+    计算暴露指标与累积暴露（双轨制：ΔP 轨道 + MP 轨道，按文献精读）。
 
-    参数:
-        rows - 已 enrich 过的行列表（含 dP 和 MP 字段）
-
-    返回:
-        dict with dp_stats, mp_stats, cumulative, risk_level
+    累积暴露度量：高暴露分钟数（→高暴露小时数）、超阈 AUC、总机械能、顺应性。
+    参数 rows 为已 enrich 过的行（含 dP / MP 字段）。
     """
     dp_vals = [r["dP"] for r in rows if not math.isnan(r.get("dP", float("nan")))]
     mp_vals = [r["MP"] for r in rows if not math.isnan(r.get("MP", float("nan")))]
@@ -97,10 +119,12 @@ def compute_exposure(rows: list) -> dict:
     mp_over = [v for v in mp_vals if v > MP_THRESHOLD]
     mp_over_pct = (len(mp_over) / len(mp_vals) * 100) if mp_vals else 0.0
 
-    # AUC（梯形法）
-    dp_auc = 0.0
-    mp_auc = 0.0
+    # ── 累积暴露（高暴露分钟数 / 超阈 AUC / 总机械能 / 顺应性）──
+    dp_over_min = mp_over_min_17 = mp_over_min_18 = mp_over_min_20 = 0.0
+    dp_auc_above = mp_auc_above_17 = mp_auc_above_18 = mp_auc_above_20 = 0.0
     cum_energy = 0.0
+    comp_sum = 0.0
+    comp_n = 0
 
     if len(rows) >= 2:
         for i in range(1, len(rows)):
@@ -109,38 +133,64 @@ def compute_exposure(rows: list) -> dict:
                 continue
 
             d0, d1 = rows[i - 1].get("dP", float("nan")), rows[i].get("dP", float("nan"))
-            if not math.isnan(d0) and not math.isnan(d1):
-                e0 = max(0, d0 - DP_THRESHOLD)
-                e1 = max(0, d1 - DP_THRESHOLD)
-                dp_auc += (e0 + e1) / 2 * dt_min
-
             m0, m1 = rows[i - 1].get("MP", float("nan")), rows[i].get("MP", float("nan"))
+
+            if not math.isnan(d0) and not math.isnan(d1):
+                dp_over_min += _above_minutes(d0, d1, dt_min, DP_THRESHOLD)
+                dp_auc_above += _auc_above(d0, d1, dt_min, DP_THRESHOLD)
+
             if not math.isnan(m0) and not math.isnan(m1):
-                e0 = max(0, m0 - MP_THRESHOLD)
-                e1 = max(0, m1 - MP_THRESHOLD)
-                mp_auc += (e0 + e1) / 2 * dt_min
-                cum_energy += ((m0 + m1) / 2) * dt_min
+                mp_over_min_17 += _above_minutes(m0, m1, dt_min, MP_THRESHOLD)
+                mp_over_min_18 += _above_minutes(m0, m1, dt_min, MP_HIGH_STRATUM_THRESHOLD)
+                mp_over_min_20 += _above_minutes(m0, m1, dt_min, MP_LOW_STRATUM_THRESHOLD)
+                mp_auc_above_17 += _auc_above(m0, m1, dt_min, MP_THRESHOLD)
+                mp_auc_above_18 += _auc_above(m0, m1, dt_min, MP_HIGH_STRATUM_THRESHOLD)
+                mp_auc_above_20 += _auc_above(m0, m1, dt_min, MP_LOW_STRATUM_THRESHOLD)
+                cum_energy += ((m0 + m1) / 2.0) * dt_min
+
+            # 顺应性 CRS = VT(mL) / ΔP（Lijovic 2026），单位 mL/cmH2O，与分层阈值 32.7 一致
+            vt = rows[i].get("Vte", float("nan"))
+            if not math.isnan(vt) and not math.isnan(d1) and d1 > 0:
+                comp_sum += vt / d1
+                comp_n += 1
+
+    compliance_mean = (comp_sum / comp_n) if comp_n else float("nan")
 
     # 风险评级（瞬时单值维度）
     risk = classify_risk(dp_max, dp_over_pct, mp_max, mp_over_pct)
 
-    # 累积维度评级（由累积 AUC / 累积机械能 判定，阈值为 24h 窗口保守默认）
-    cum_risk = classify_cumulative_risk(dp_auc, mp_auc, cum_energy)
+    # 累积维度评级（高暴露小时数 + 顺应性分层）
+    dp_over_hours = dp_over_min / 60.0
+    stratum = "high" if (not math.isnan(compliance_mean)
+                         and compliance_mean > COMPLIANCE_STRATUM_THRESHOLD) else "low"
+    mp_over_hours = (mp_over_min_18 / 60.0) if stratum == "high" else (mp_over_min_20 / 60.0)
+    cum_risk = classify_cumulative_risk(dp_over_hours, mp_over_hours, stratum)
 
     return {
         "dp": {
             "max": dp_max, "mean": dp_mean,
             "threshold": DP_THRESHOLD,
             "over_count": len(dp_over), "over_pct": dp_over_pct,
-            "auc": dp_auc,
+            "auc": dp_auc_above,
         },
         "mp": {
             "max": mp_max, "mean": mp_mean,
             "threshold": MP_THRESHOLD,
             "over_count": len(mp_over), "over_pct": mp_over_pct,
-            "auc": mp_auc,
+            "auc": mp_auc_above_17,
         },
-        "cumulative_energy_j": cum_energy,
+        # 原始累积累加量（供聚合层滚动）
+        "cum_over_minutes": {
+            "dp": dp_over_min, "mp17": mp_over_min_17,
+            "mp18": mp_over_min_18, "mp20": mp_over_min_20,
+        },
+        "cum_auc_above": {
+            "dp": dp_auc_above, "mp17": mp_auc_above_17,
+            "mp18": mp_auc_above_18, "mp20": mp_auc_above_20,
+        },
+        "cum_energy_j": cum_energy,
+        "compliance_mean": compliance_mean,
+        "compliance_stratum": stratum,
         "risk_level": risk,
         "risk_label": RISK_LABELS.get(risk, "L1 正常"),
         "cumulative_risk_level": cum_risk,
@@ -154,7 +204,7 @@ def classify_risk(
     mp_max: float, mp_over_pct: float,
 ) -> int:
     """
-    风险评级 L1-L4。
+    风险评级 L1-L4（瞬时单值维度）。
     L1 正常 | L2 关注（超阈但少） | L3 警告（超阈>20%） | L4 危险（超阈>50%）
     """
     risk = 1
@@ -169,31 +219,32 @@ def classify_risk(
 
 
 def classify_cumulative_risk(
-    cum_dp_auc: float, cum_mp_auc_j: float, cum_energy_j: float,
-    vent_min: float = None,
+    dp_over_hours: float, mp_over_hours: float, stratum: str = "high",
 ) -> int:
     """
-    累积维度风险评级 L1-L4（24h 窗口）。
+    累积维度风险评级 L1/L3/L4（双轨制·基于高暴露小时数）。
 
-    依据累积暴露指标是否越过 L3/L4 保守默认阈值：
-      - 机械能（kJ）、MP 超阈 AUC（kJ）、ΔP 超阈 AUC（cmH2O·min）
-    低于 L3 → L1（累积维度无风险）；越 L3 → L3；越 L4 → L4。
-    累积维度仅会提升到 L3/L4，不会单独产生 L2（L2 由瞬时单值维度负责）。
+    - ΔP 轨道：高暴露小时数 ≥ CUM_DP_OVER_HOURS_L3 → L3；≥ L4 → L4。
+    - MP 轨道：按顺应性分层选用对应阈值
+        · 高顺应性（CRS>32.7）：MP≥18 且 高暴露≥2h → L3/L4
+        · 低顺应性（CRS≤32.7）：MP≥20 且 高暴露≥12h → L3/L4
+    累积维度仅提升到 L3/L4（不会单独产生 L2，L2 由瞬时单值维度负责）。
 
-    ⚠ 阈值待临床确认，可在设置页调整（见 config.CUM_*）。
+    阈值依据：Lijovic 2026（高顺应性 MP≥18×2h 显著累积伤害；低顺应性窄带）；
+    ΔP ≥2h 类推自同文献。仍待临床最终确认（可在设置页调整）。
     """
-    energy_kj = (cum_energy_j or 0.0) / 1000.0
-    mp_auc_kj = (cum_mp_auc_j or 0.0) / 1000.0
-    dp_auc = cum_dp_auc or 0.0
+    if stratum == "low":
+        l3, l4 = CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW
+    else:
+        l3, l4 = CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH
+
+    dp_h = dp_over_hours or 0.0
+    mp_h = mp_over_hours or 0.0
 
     risk = 1
-    if (energy_kj >= CUM_ENERGY_L4_KJ
-            or mp_auc_kj >= CUM_MP_AUC_L4_KJ
-            or dp_auc >= CUM_DP_AUC_L4):
+    if dp_h >= CUM_DP_OVER_HOURS_L4 or mp_h >= l4:
         risk = 4
-    elif (energy_kj >= CUM_ENERGY_L3_KJ
-            or mp_auc_kj >= CUM_MP_AUC_L3_KJ
-            or dp_auc >= CUM_DP_AUC_L3):
+    elif dp_h >= CUM_DP_OVER_HOURS_L3 or mp_h >= l3:
         risk = 3
     return risk
 
