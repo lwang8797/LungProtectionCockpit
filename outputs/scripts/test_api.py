@@ -4,10 +4,10 @@ test_api.py - 肺保护驾驶舱后端 API 端到端测试脚本
 
 用法:
   1. 先启动 API 服务:
-     cd 输出
+     cd outputs
      PYTHONPATH=. python -m uvicorn lung_protection_cockpit.api:app --host 127.0.0.1 --port 9090
   2. 另开终端运行本脚本:
-     python 输出/scripts/test_api.py
+     python outputs/scripts/test_api.py
 """
 import requests
 import json

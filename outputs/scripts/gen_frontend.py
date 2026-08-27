@@ -2,7 +2,7 @@
 """
 gen_frontend.py - 生成肺保护驾驶舱前端 HTML（M5: 对接真实 REST + WebSocket API）
 
-生成文件: 输出/cockpit_frontend.html
+生成文件: outputs/cockpit_frontend.html
 特性:
   - 深色主题，15寸触摸屏 WebUI（1366×768）
   - REST API 取数 (/api/overview, /api/dp/trend, /api/mp/trend, /api/risk-map, /api/alerts)

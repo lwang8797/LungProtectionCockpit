@@ -4,17 +4,17 @@
 
 ## 目录结构
 
-- `输出/` — 项目产出物（按类别分类存放）
-  - `输出/lung_protection_cockpit/` — 后端计算与采集模块（Python）
-  - `输出/scripts/` — 数据处理、文档与前端生成脚本（Python）
-  - `输出/*.html` — 前端驾驶舱页面、产品原型、实施方案
-  - `输出/*.docx` / `输出/*.json` / `输出/*.csv` — 设计/需求文档与真实数据样例
+- `outputs/` — 项目产出物（按类别分类存放）
+  - `outputs/lung_protection_cockpit/` — 后端计算与采集模块（Python）
+  - `outputs/scripts/` — 数据处理、文档与前端生成脚本（Python）
+  - `outputs/cockpit_frontend.html` — 前端驾驶舱页面（自包含）；`outputs/docs/*.html` — 产品原型、实施方案
+  - `outputs/docs/*.docx` — 设计/需求文档；`outputs/*.json` / `outputs/*.csv` — 真实数据样例
 - `文档/` — 智能呼吸机规划相关文档（一页图、功能规划表、相关性、落地方向）
 
 ## 环境依赖
 
 - 前端：见 `package.json`（Node 生态）
-- 后端/脚本：见 `输出/lung_protection_cockpit/requirements.txt`（Python）
+- 后端/脚本：见 `outputs/lung_protection_cockpit/requirements.txt`（Python）
 
 ## 版本管理
 
@@ -32,18 +32,18 @@
       - 高顺应性（CRS>32.7）：MP≥18 且 高暴露 ≥2h → L3、≥6h → L4；
       - 低顺应性（CRS≤32.7）：MP≥20 且 高暴露 ≥12h → L3、≥24h → L4。
     - 辅助指标：超阈 AUC（ΔP / MP）、总机械能（kJ）、% 时间超阈，用于展示与核查。
-  - 累积暴露阈值（高暴露小时数 / MP 分层阈值 / 顺应性分界）集中在 `输出/lung_protection_cockpit/config.py`，并在前端「设置」页可随时调整（⚠ 待临床/医师最终确认）。
+  - 累积暴露阈值（高暴露小时数 / MP 分层阈值 / 顺应性分界）集中在 `outputs/lung_protection_cockpit/config.py`，并在前端「设置」页可随时调整（⚠ 待临床/医师最终确认）。
   - 后端预警区分 `category="threshold"`（单值越限）与 `category="cumulative"`（累积越限），按 (risk_level, category) 去重、互不覆盖。
 
 ## 启动方式
 
 ### 1) 后端（FastAPI 服务 + 聚合）
 
-依赖：Python 3.10+，并安装 `输出/lung_protection_cockpit/requirements.txt`（fastapi / uvicorn / pymongo / python-dateutil 等）。
+依赖：Python 3.10+，并安装 `outputs/lung_protection_cockpit/requirements.txt`（fastapi / uvicorn / pymongo / python-dateutil 等）。
 
 > ⚠️ **Windows 必读**
-> 1. 必须先在**「输出」目录**下执行（`lung_protection_cockpit` 包位于此），否则报 `No module named lung_protection_cockpit`。
-> 2. 设 `PYTHONPATH` 指向当前目录（`输出`），让 Python 能找到该包。**不同终端写法不同**：
+> 1. 必须先在**「outputs」目录**下执行（`lung_protection_cockpit` 包位于此），否则报 `No module named lung_protection_cockpit`。
+> 2. 设 `PYTHONPATH` 指向当前目录（`outputs`），让 Python 能找到该包。**不同终端写法不同**：
 >    - Git Bash / WSL / Linux / macOS：`PYTHONPATH=. python -m ...`
 >    - **Windows CMD**：`set PYTHONPATH=. && python -m ...`
 >    - **Windows PowerShell**：`$env:PYTHONPATH="."; python -m ...`
@@ -52,7 +52,7 @@
 **① 首次：建虚拟环境并装依赖（三种终端通用）**
 
 ```bash
-cd 输出
+cd outputs
 python -m venv .venv
 #   激活：Git Bash → source .venv/Scripts/activate ；CMD → .venv\Scripts\activate ；PowerShell → .venv\Scripts\Activate.ps1
 pip install -r lung_protection_cockpit/requirements.txt
@@ -73,7 +73,7 @@ pip install -r lung_protection_cockpit/requirements.txt
   $env:PYTHONPATH="."; python -m lung_protection_cockpit.main all --hours 24
   ```
 
-> 嫌敲命令麻烦？可直接双击 `输出/启动后端.bat`（自动建 venv、装依赖、设 PYTHONPATH 并启动）。
+> 嫌敲命令麻烦？可直接双击 `outputs/启动后端.bat`（自动建 venv、装依赖、设 PYTHONPATH 并启动）。
 
 环境变量：`COCKPIT_HOST`（默认 0.0.0.0）、`COCKPIT_PORT`（默认 8080）。
 启动后访问：
@@ -86,16 +86,16 @@ pip install -r lung_protection_cockpit/requirements.txt
 
 ### 2) 前端（独立静态预览，不依赖后端）
 
-`输出/cockpit_frontend.html` 是**自包含**的驾驶舱页面（HTML+CSS+JS 内联），可直接用浏览器打开；若后端已启动，页面会实时拉取 `/api/overview` 等接口并自动通过 WebSocket 刷新。
+`outputs/cockpit_frontend.html` 是**自包含**的驾驶舱页面（HTML+CSS+JS 内联），可直接用浏览器打开；若后端已启动，页面会实时拉取 `/api/overview` 等接口并自动通过 WebSocket 刷新。
 
 ```bash
 # 方式 A：直接用浏览器打开
-#   文件管理器双击 输出/cockpit_frontend.html，或 VS Code "Open with Live Server"
+#   文件管理器双击 outputs/cockpit_frontend.html，或 VS Code "Open with Live Server"
 
 # 方式 B：本地起一个静态服务器（任选其一）
-npx serve 输出 -l 5173
+npx serve outputs -l 5173
 # 或
-python -m http.server 5173 -d 输出
+python -m http.server 5173 -d outputs
 # 然后浏览器打开 http://localhost:5173/cockpit_frontend.html
 ```
 
@@ -105,7 +105,7 @@ python -m http.server 5173 -d 输出
 
 ```bash
 # 离线纯逻辑测试（无需 MongoDB / 网络）：累积维度评级、顺应性分层与合并风险
-cd 输出
+cd outputs
 #   Git Bash:  PYTHONPATH=. python scripts/test_cumulative_logic.py
 #   Windows CMD:   set PYTHONPATH=. && python scripts/test_cumulative_logic.py
 #   PowerShell:    $env:PYTHONPATH="."; python scripts/test_cumulative_logic.py

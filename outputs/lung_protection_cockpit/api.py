@@ -617,6 +617,6 @@ async def serve_frontend():
         return FileResponse(_FRONTEND_HTML, media_type="text/html")
     return HTMLResponse(
         "<h1>前端文件未找到</h1>"
-        "<p>请运行生成脚本: python 输出/scripts/gen_frontend.py</p>",
+        "<p>请运行生成脚本: python outputs/scripts/gen_frontend.py</p>",
         status_code=404,
     )

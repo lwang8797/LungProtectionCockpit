@@ -9,7 +9,7 @@ test_cumulative_logic.py - 累积暴露报警（双维度·高暴露小时数·�
   4. 高顺应性 / 低顺应性 分层行为验证
 
 用法:
-  cd 输出
+  cd outputs
   PYTHONPATH=. python scripts/test_cumulative_logic.py
 """
 import sys
