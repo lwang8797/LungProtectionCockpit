@@ -8,7 +8,9 @@ REST 端点:
   GET  /api/dp/trend           - ΔP 时间序列
   GET  /api/mp/trend           - MP 时间序列
   GET  /api/risk-map           - 二维风险图散点
-  GET  /api/alerts             - 预警事件列表
+  GET  /api/alerts             - 预警事件列表（含确认状态）
+  POST /api/alerts/{id}/ack    - 确认单条预警（持久化）
+  POST /api/alerts/ack-all     - 批量确认当前设备全部活动中预警
   GET  /api/metrics/1min       - 1分钟聚合数据
 
 WebSocket:
@@ -27,10 +29,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from bson import ObjectId
+from bson.errors import InvalidId
 
 from .config import (
     MONGO_URI, MONGO_DB, COLL_RAW, COLL_1MIN, COLL_ALERTS,
@@ -676,23 +680,113 @@ async def get_risk_map(
     }
 
 
+def _serialize_alert(doc: dict) -> dict:
+    """把 MongoDB 文档转为前端可消费的 JSON 结构。
+
+    - `_id`(ObjectId) → `id`(str)：前端据此唯一定位并确认某条预警
+    - 补齐状态字段：本服务上线前写入的历史预警没有 active / acknowledged 字段，
+      在此处按「活动中」兜底，避免旧数据永远无法确认。
+    """
+    d = dict(doc)
+    d["id"] = str(d.pop("_id", ""))
+    d["active"] = bool(d.get("active", True))
+    d["acknowledged"] = bool(d.get("acknowledged", False))
+    d.setdefault("acknowledged_by", None)
+    d.setdefault("acknowledged_at", None)
+    d.setdefault("acknowledged_at_iso", None)
+    return _clean_nan(d)
+
+
 @app.get("/api/alerts")
 async def get_alerts(
     deviceId: str = Query(default=DEVICE_ID),
     hours: float = Query(default=24, ge=0.1, le=168),
     limit: int = Query(default=100, ge=1, le=500),
 ):
-    """预警事件列表"""
+    """预警事件列表（含确认状态，按时间倒序）"""
     db = get_database()
     _, latest_ts = get_time_range(db, deviceId)
     start_ts = latest_ts - int(hours * 3600 * 1000)
 
-    alerts = list(db[COLL_ALERTS].find(
+    docs = list(db[COLL_ALERTS].find(
         {"deviceId": deviceId, "ts": {"$gte": start_ts, "$lte": latest_ts}},
-        {"_id": 0},
     ).sort("ts", -1).limit(limit))
 
-    return {"device": deviceId, "count": len(alerts), "alerts": alerts}
+    alerts = [_serialize_alert(d) for d in docs]
+    active_n = sum(1 for a in alerts if a["active"])
+    return {
+        "device": deviceId,
+        "count": len(alerts),
+        "active_count": active_n,
+        "alerts": alerts,
+    }
+
+
+def _ack_alert_doc(db, doc: dict, operator: str) -> dict:
+    """把单条预警置为「已确认」，返回更新后的文档。"""
+    now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    update = {
+        "active": False,
+        "acknowledged": True,
+        "acknowledged_by": operator or "操作员",
+        "acknowledged_at": now_ms,
+        "acknowledged_at_iso": datetime.fromtimestamp(
+            now_ms / 1000, tz=timezone.utc).isoformat(),
+    }
+    db[COLL_ALERTS].update_one({"_id": doc["_id"]}, {"$set": update})
+    return _serialize_alert({**doc, **update})
+
+
+@app.post("/api/alerts/{alert_id}/ack")
+async def ack_alert(
+    alert_id: str,
+    deviceId: str = Query(default=DEVICE_ID),
+    payload: dict = Body(default=None),
+):
+    """确认单条预警（持久化到 MongoDB，刷新页面后依然是「已确认」）。
+
+    body: {"operator": "张医师"}  —— 可选，缺省为「操作员」
+    """
+    db = get_database()
+    try:
+        oid = ObjectId(alert_id)
+    except (InvalidId, TypeError):
+        raise HTTPException(status_code=400, detail=f"非法的预警 ID: {alert_id}")
+
+    doc = db[COLL_ALERTS].find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="预警不存在")
+    if doc.get("deviceId") != deviceId:
+        raise HTTPException(status_code=404, detail="预警不属于该设备")
+
+    operator = ((payload or {}).get("operator") or "操作员").strip() or "操作员"
+    updated = _ack_alert_doc(db, doc, operator)
+    logger.info(f"预警确认: {alert_id} by {operator}")
+    return {"ok": True, "alert": updated}
+
+
+@app.post("/api/alerts/ack-all")
+async def ack_all_alerts(
+    deviceId: str = Query(default=DEVICE_ID),
+    hours: float = Query(default=24, ge=0.1, le=168),
+    payload: dict = Body(default=None),
+):
+    """批量确认当前窗口内全部「活动中」预警。"""
+    db = get_database()
+    _, latest_ts = get_time_range(db, deviceId)
+    start_ts = latest_ts - int(hours * 3600 * 1000)
+
+    operator = ((payload or {}).get("operator") or "操作员").strip() or "操作员"
+    pending = list(db[COLL_ALERTS].find({
+        "deviceId": deviceId,
+        "ts": {"$gte": start_ts, "$lte": latest_ts},
+        "active": {"$ne": False},
+    }))
+
+    updated = [_ack_alert_doc(db, d, operator) for d in pending]
+    logger.info(f"批量确认 {len(updated)} 条预警 by {operator}")
+    return {"ok": True, "acknowledged": len(updated), "operator": operator,
+            "alerts": updated}
 
 
 @app.get("/api/metrics/1min")

@@ -422,8 +422,9 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         <div class="trend-head">
           <span class="title">预警中心</span>
           <span class="sub">全部提示均为风险提示与决策支持，不构成诊断结论</span>
-            <div class="seg" id="alFilter" style="margin-left:auto;">
-            <button class="btn on" data-f="all">全部</button><button class="btn" data-f="act">活动中</button><button class="btn" data-f="done">已恢复</button><button class="btn" data-f="cum">累积类</button>
+            <button class="btn" id="ackAllBtn" style="margin-left:auto;" onclick="ackAllAlerts()">全部确认 (<span id="ackAllCount">0</span>)</button>
+            <div class="seg" id="alFilter">
+            <button class="btn on" data-f="all">全部</button><button class="btn" data-f="act">活动中</button><button class="btn" data-f="done">已处理</button><button class="btn" data-f="cum">累积类</button>
           </div>
         </div>
         <div id="alList"></div>
@@ -900,26 +901,91 @@ function segList(containerId, win, key, validKey, T, unit, color){
 }
 
 // ==================== Alert Rendering ====================
+// 预警生命周期（两态，与后端 cockpit_alerts 字段一致）：
+//   活动中  active=true               → 红点 + 「确认」按钮
+//   已确认  active=false 且有确认人   → ✓ 已确认 · 操作员 HH:MM
+//   已恢复  active=false 且无确认人   → 历史兼容兜底
+// 确认状态由后端持久化（POST /api/alerts/{id}/ack），刷新页面不会丢失。
+function alertById(id){
+  for(var i=0;i<alerts.length;i++){ if(alerts[i].id===id) return alerts[i]; }
+  return null;
+}
+function ackLabel(a){
+  if(a.ackBy) return '✓ 已确认 · '+a.ackBy+(a.ackAt?' '+a.ackAt:'');
+  return '已恢复';
+}
 function renderAlerts(){
   var list=document.getElementById('alList'); var h='';
   var filtered=alerts.filter(function(a){ return alFilter==='all'||(alFilter==='act'?a.act:!a.act)||(alFilter==='cum'&&a.cat==='cumulative'); });
-  if(!filtered.length){ list.innerHTML='<div class="card" style="text-align:center;color:var(--t-3);">当前无预警事件（保护性通气）</div>'; document.getElementById('alBadge').textContent='0'; return; }
+  var actN=alerts.filter(function(a){return a.act;}).length;
+  var badge=document.getElementById('alBadge'); if(badge) badge.textContent=String(actN);
+  var cnt=document.getElementById('ackAllCount'); if(cnt) cnt.textContent=String(actN);
+  var allBtn=document.getElementById('ackAllBtn'); if(allBtn) allBtn.disabled=(actN===0);
+
+  if(!filtered.length){ list.innerHTML='<div class="card" style="text-align:center;color:var(--t-3);">当前无预警事件（保护性通气）</div>'; return; }
   filtered.forEach(function(a){
-    h+='<div class="al-item">'
+    h+='<div class="al-item" data-id="'+(a.id||'')+'">'
       +'<span class="lv l'+a.lv+'">'+a.lvN+'</span>'
-      +'<div><div class="msg">'+(a.cat==='cumulative'?'<span class="catpill">累积</span>':'')+a.msg+'</div><div class="meta">'+a.meta+(a.time?' · '+a.time:'')+(a.ack?' · '+a.ack:'')+'</div></div>'
-      +'<div class="st">'+(a.act? '<span style="color:var(--dan);font-weight:bold;">● 活动中</span><button class="btn ghost-warn" onclick="ackAlert(this)">确认</button>' : '<span style="color:var(--t-3)">已恢复</span>')+'</div></div>';
+      +'<div><div class="msg">'+(a.cat==='cumulative'?'<span class="catpill">累积</span>':'')+a.msg+'</div><div class="meta">'+a.meta+(a.time?' · '+a.time:'')+'</div></div>'
+      +'<div class="st">'+(a.act
+          ? '<span style="color:var(--dan);font-weight:bold;">● 活动中</span><button class="btn ghost-warn" data-ack="'+(a.id||'')+'">确认</button>'
+          : '<span style="color:var(--t-3)">'+ackLabel(a)+'</span>')+'</div></div>';
   });
   list.innerHTML=h;
-  document.getElementById('alBadge').textContent=alerts.filter(function(a){return a.act;}).length;
+  // 事件委托 + data-id 精确定位（不再用 DOM 序号反查，避免筛选页签下确认错对象）
+  [].forEach.call(list.querySelectorAll('[data-ack]'),function(b){
+    b.addEventListener('click',function(){ ackAlert(b.getAttribute('data-ack')); });
+  });
 }
-function ackAlert(btn){
-  var item=btn.closest('.al-item');
-  var idx=[].indexOf.call(document.getElementById('alList').children,item);
-  var acts=alerts.filter(function(a){return alFilter==='all'||(alFilter==='act'?a.act:!a.act);});
-  if(acts[idx]){ acts[idx].act=false; acts[idx].ack='操作员 '+('0'+new Date().getHours()).slice(-2)+':'+('0'+new Date().getMinutes()).slice(-2)+' 确认'; }
-  renderAlerts(); toast('预警已确认（操作留痕）');
+
+// 确认单条预警：先乐观更新 UI，再持久化到后端；失败自动回滚
+async function ackAlert(id){
+  var a=alertById(id);
+  if(!a||!a.act) return;
+  var snap={act:a.act,ackBy:a.ackBy,ackAt:a.ackAt};
+  var who='操作员';
+  var stamp=('0'+new Date().getHours()).slice(-2)+':'+('0'+new Date().getMinutes()).slice(-2);
+  a.act=false; a.ackBy=who; a.ackAt=stamp;
+  renderAlerts();
+  try{
+    var r=await fetch(API+'/api/alerts/'+encodeURIComponent(id)+'/ack',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({operator:who})
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.alert){ a.ackBy=d.alert.acknowledged_by||who;
+                 a.ackAt=d.alert.acknowledged_at?ackHm(d.alert.acknowledged_at):stamp; }
+    renderAlerts(); toast('预警已确认（已留痕持久化）');
+  }catch(e){
+    a.act=snap.act; a.ackBy=snap.ackBy; a.ackAt=snap.ackAt;
+    renderAlerts(); toast('确认失败，后端未保存，请检查服务状态');
+    console.error('ackAlert error:',e);
+  }
 }
+
+// 批量确认当前全部活动中预警
+async function ackAllAlerts(){
+  var actN=alerts.filter(function(a){return a.act;}).length;
+  if(!actN){ toast('当前没有活动中的预警'); return; }
+  if(!confirm('确认要将当前 '+actN+' 条活动中的预警全部标记为「已确认」吗？\n该操作会写入留痕记录。')) return;
+  var btn=document.getElementById('ackAllBtn'); if(btn) btn.disabled=true;
+  try{
+    var r=await fetch(API+'/api/alerts/ack-all?hours=168',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({operator:'操作员'})
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    toast('已批量确认 '+(d.acknowledged||0)+' 条预警');
+    await fetchAlertsData();
+  }catch(e){
+    if(btn) btn.disabled=false;
+    toast('批量确认失败，请检查后端服务'); console.error('ackAll error:',e);
+  }
+}
+function ackHm(ms){ var t=new Date(ms); return ('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2); }
+
 document.getElementById('alFilter').addEventListener('click',function(e){
   if(e.target.classList.contains('btn')){
     [].forEach.call(this.querySelectorAll('.btn'),function(b){b.classList.remove('on');});
@@ -1345,16 +1411,18 @@ async function fetchAlertsData(){
     alerts = (d.alerts || []).map(function(a){
       var dt = a.ts ? new Date(a.ts) : new Date();
       var hh = ('0'+dt.getHours()).slice(-2), mm = ('0'+dt.getMinutes()).slice(-2);
-      var timeStr = hh+':'+mm+' - '+(a.active===false ? '已恢复' : '进行中');
+      var timeStr = hh+':'+mm+' - '+(a.active===false ? '已结束' : '进行中');
       return {
+        id: a.id || null,                       // 后端 _id 字符串，确认时用作主键
         lv: Math.min(a.risk_level||2, 3),
         lvN: a.risk_label || ('L'+(a.risk_level||2)),
         msg: a.message || a.risk_label || '风险提示',
         meta: a.detail || '',
         cat: a.category || 'threshold',
         time: timeStr,
-        act: a.active !== false,
-        ack: a.acknowledged_by || null
+        act: a.active !== false,                // 后端无该字段时按「活动中」兜底
+        ackBy: a.acknowledged_by || null,
+        ackAt: a.acknowledged_at ? ackHm(a.acknowledged_at) : null
       };
     });
     renderAlerts();

@@ -349,6 +349,9 @@ def _check_and_alert(db, device_id: str, ts: int, doc: dict):
         "cum_mp_over_min_20": doc.get("cum_mp_over_min_20"),
         "cum_energy_j": doc.get("cum_energy"),
         "compliance_stratum": doc.get("compliance_stratum"),
+        # 生命周期状态：写入即「活动中、未确认」，由 POST /api/alerts/{id}/ack 置为已确认
+        "active": True,
+        "acknowledged": False,
     }
     db[COLL_ALERTS].insert_one(alert)
     logger.info(f"预警写入[{category}]: {alert['message']} @ {alert['tsISO']}")
