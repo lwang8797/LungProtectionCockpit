@@ -133,8 +133,13 @@ def sliding_slopes(series, key="dp", windows_min=(60, 360, 1440),
 # ────────────────────────────────────────────────────────────
 def cusum_track(series, key="dp", k=None, h=None, mu0=None,
                 mu0_span_min=1440, gap_reset_min=GAP_RESET_MIN,
-                sigma_span_min=720):
-    """双侧 CUSUM。S± 超 h 记变化点并归零。>gap 断流重置。"""
+                sigma_span_min=720, cooldown_min=60):
+    """双侧 CUSUM。S± 超 h 记变化点并归零。>gap 断流重置。
+
+    cooldown_min：同一侧变化点冷却时间（默认 60min）。CUSUM 对持续大漂移会在
+    每个复位后很快再超限，冷却用于把「同一段持续漂移」折叠成一次变化点预警，
+    避免刷屏（呈现层面只关心漂移的「起跳」时刻）。
+    """
     pts = _valid_series_points(series, key)
     if len(pts) < 2:
         return {"change_points": [], "mu0": None, "k": k, "h": h,
@@ -143,15 +148,6 @@ def cusum_track(series, key="dp", k=None, h=None, mu0=None,
         k = CUSUM_K_DP if key == "dp" else CUSUM_K_MP
     latest = pts[-1][0]
 
-    def _recent_backward(vals_ref):
-        out = []
-        for p in reversed(pts):
-            if (latest - p[0]) > 0:
-                pass
-            break
-        return out
-
-    # μ0：与最新点连续且落在 mu0_span 内
     base = []
     for p in reversed(pts):
         if (latest - p[0]) > mu0_span_min * 60000:
@@ -176,16 +172,28 @@ def cusum_track(series, key="dp", k=None, h=None, mu0=None,
 
     Sp, Sn = 0.0, 0.0
     cps, prev_ts = [], None
+    last_up_ts = last_dn_ts = None
     for ts, val in pts:
         if prev_ts is not None and (ts - prev_ts) > gap_reset_min * 60000:
             Sp = Sn = 0.0
+            last_up_ts = last_dn_ts = None
         Sp = max(0.0, Sp + (val - mu0 - k))
         Sn = max(0.0, Sn + (mu0 - k - val))
-        if Sp > h:
-            cps.append({"ts": int(ts), "side": "up", "val": round(val, 2), "S": round(Sp, 2)})
+        if Sp > h and (last_up_ts is None
+                       or (ts - last_up_ts) > cooldown_min * 60000):
+            cps.append({"ts": int(ts), "side": "up", "val": round(val, 2),
+                        "S": round(Sp, 2)})
             Sp = 0.0
-        if Sn > h:
-            cps.append({"ts": int(ts), "side": "down", "val": round(val, 2), "S": round(Sn, 2)})
+            last_up_ts = ts
+        elif Sp > h:
+            Sp = 0.0   # 冷却期内的再次超限：不重复报，仅复位
+        if Sn > h and (last_dn_ts is None
+                       or (ts - last_dn_ts) > cooldown_min * 60000):
+            cps.append({"ts": int(ts), "side": "down", "val": round(val, 2),
+                        "S": round(Sn, 2)})
+            Sn = 0.0
+            last_dn_ts = ts
+        elif Sn > h:
             Sn = 0.0
         prev_ts = ts
     return {"change_points": cps, "mu0": round(mu0, 3), "k": k, "h": round(h, 3),
@@ -195,46 +203,76 @@ def cusum_track(series, key="dp", k=None, h=None, mu0=None,
 # ────────────────────────────────────────────────────────────
 #  URS FR-06 G0-G3 矩阵 + 防抖引擎
 # ────────────────────────────────────────────────────────────
-def grade_from_metrics(dp_tat_24h, mp_tat_24h, dp, mp, stratum,
-                       dp_sustain, dp_slope_up,
-                       mp_sustain, mp_g3_sustain):
-    """对单帧初判 G0..G3（sustain 游程由引擎累计）。任何判据命中取最高级。"""
-    grade = G0
-    # ΔP
-    if dp_tat_24h >= DP_TAT_G3 or (dp is not None and dp >= DP_G3_THR
-                                   and dp_sustain >= DEBOUNCE_G3_MIN):
-        grade = max(grade, G3)
-    elif dp_tat_24h >= DP_TAT_G2 or (dp_sustain >= DEBOUNCE_G2_MIN and dp_slope_up):
-        grade = max(grade, G2)
-    elif dp_tat_24h >= DP_TAT_G1 or dp_sustain >= DEBOUNCE_G1_MIN:
-        grade = max(grade, G1)
-    # MP
-    if stratum == "high":
-        if mp_g3_sustain >= MP_G3_HIGH_MIN and mp >= MP_G3_HIGH_THR:
-            grade = max(grade, G3)
-        elif mp_tat_24h >= MP_TAT_G2:
-            grade = max(grade, G2)
-        elif mp_tat_24h >= MP_TAT_G1 or mp_sustain >= DEBOUNCE_G1_MIN:
-            grade = max(grade, G1)
-    else:  # low
-        if mp_g3_sustain >= MP_G3_LOW_MIN and mp >= MP_G3_LOW_THR:
-            grade = max(grade, G3)
-        elif mp_tat_24h >= MP_TAT_G2:
-            grade = max(grade, G2)
-        elif mp_tat_24h >= MP_TAT_G1 or mp_sustain >= DEBOUNCE_G1_MIN:
-            grade = max(grade, G1)
-    return grade
+def _tat_grade(dp_tat_24h, mp_tat_24h, stratum):
+    """仅由 24h 滚动 TAT 决定的等级（累积暴露维度，天然抗瞬时，不需防抖、不会快速回落）。
+
+    规则（FR-06 矩阵，取最高）：
+      ΔP : <5→G0 ; ≥5→G1 ; ≥15→G2 ; ≥30→G3
+      MP : <7→G0 ; ≥7→G1 ; ≥17→G2（矩阵中 MP 无单独 ≥30 的 G3 TAT，G3 由分层持续驱动）
+    """
+    g = G0
+    if dp_tat_24h >= DP_TAT_G3:
+        g = max(g, G3)
+    elif dp_tat_24h >= DP_TAT_G2:
+        g = max(g, G2)
+    elif dp_tat_24h >= DP_TAT_G1:
+        g = max(g, G1)
+    if mp_tat_24h >= MP_TAT_G2:
+        g = max(g, G2)
+    elif mp_tat_24h >= MP_TAT_G1:
+        g = max(g, G1)
+    return g
+
+
+def _sustain_grade(dp, mp, stratum, dp_sustain, dp_g3_sustain, dp_slope_up,
+                   mp_sustain, mp_g3_sustain):
+    """仅由「当前瞬时值 + 持续游程 + 斜率」决定的等级（瞬时维度，需防抖确认）。
+
+    满足 URS 持续时长门槛才升对应级；<15min 一律压到 ≤G1（硬地板）。
+    注意 ΔP 的 G1/G2 用「≥15 游程」，ΔP G3 需「≥20 专用游程」≥15min。
+    """
+    g = G0
+    if dp is not None and dp >= DP_G3_THR and dp_g3_sustain >= DEBOUNCE_G3_MIN:
+        g = max(g, G3)
+    elif dp_sustain >= DEBOUNCE_G2_MIN and dp_slope_up:
+        g = max(g, G2)
+    elif dp_sustain >= DEBOUNCE_G1_MIN:
+        g = max(g, G1)
+    # MP（依顺应性分层 G3）
+    g3_thr = MP_G3_HIGH_THR if stratum == "high" else MP_G3_LOW_THR
+    g3_min = MP_G3_HIGH_MIN if stratum == "high" else MP_G3_LOW_MIN
+    if mp is not None and mp >= g3_thr and mp_g3_sustain >= g3_min:
+        g = max(g, G3)
+    elif mp_sustain >= DEBOUNCE_G2_MIN:
+        g = max(g, G2)   # MP≥17 持续 ≥30min（趋势上行/超阈持续 → 警告）
+    elif mp_sustain >= DEBOUNCE_G1_MIN:
+        g = max(g, G1)
+    # 硬地板：任一值超标但持续 <15min 不允许进入 G2+（杜绝瞬时声光报警）
+    if dp is not None and dp >= DP_THR and dp_sustain < HARD_FLOOR_MIN:
+        g = min(g, G1)
+    if mp is not None and mp >= MP_THR and mp_sustain < HARD_FLOOR_MIN:
+        g = min(g, G1)
+    return g
 
 
 class DebounceGradeEngine:
-    """有状态逐分钟 G0-G3 防抖机（真·连续分钟口径）。"""
+    """有状态逐分钟 G0-G3 防抖机（真·连续分钟口径）。
+
+    等级 = max(TAT 维度级, 瞬时持续维度级)。
+    TAT 维度随 24h 滚动窗口自然升降（不可被 10min 回落快速解除）；
+    瞬时持续维度需防抖确认（≥阈值持续 N min 升级），值回落并维持 ≥10min 后解除，
+    解除仅作用于瞬时维度——不会把仍由高 TAT 撑住的等级错误压回 G1。
+    """
 
     def __init__(self, stratum="high", gap_reset_min=GAP_RESET_MIN):
         self.stratum = stratum
         self.gap_reset_min = gap_reset_min
         self.grade = G0
         self.prev_grade = G0
+        self.tat_grade = G0
+        self.sustain_grade = G0
         self.dp_sustain = 0
+        self.dp_g3_sustain = 0
         self.mp_sustain = 0
         self.mp_g3_sustain = 0
         self.below_dp = 0
@@ -245,13 +283,16 @@ class DebounceGradeEngine:
 
     def reset(self):
         self.grade = G0;  self.prev_grade = G0
-        self.dp_sustain = 0;  self.mp_sustain = 0;  self.mp_g3_sustain = 0
+        self.tat_grade = G0;  self.sustain_grade = G0
+        self.dp_sustain = 0;  self.dp_g3_sustain = 0
+        self.mp_sustain = 0;  self.mp_g3_sustain = 0
         self.below_dp = 0;    self.below_mp = 0
         self.prev_ts = None;  self.event = None
 
     def _clear_runs(self):
-        self.dp_sustain = self.mp_sustain = self.mp_g3_sustain = 0
-        self.below_dp = self.below_mp = 0
+        self.dp_sustain = 0;  self.dp_g3_sustain = 0
+        self.mp_sustain = 0;  self.mp_g3_sustain = 0
+        self.below_dp = 0;    self.below_mp = 0
 
     def feed(self, ts, dp=None, mp=None,
              dp_tat_24h=0.0, mp_tat_24h=0.0, dp_slope_up=False):
@@ -263,49 +304,43 @@ class DebounceGradeEngine:
             if gap_min > self.gap_reset_min:
                 self._clear_runs()
             elif gap_min > 1.5:
-                # ≤4h 缺失：不累计游程（真连续数据不会走到这）
-                self._clear_runs()
+                self._clear_runs()   # ≤4h 缺失：不累计游程（真连续数据不走这）
         self.prev_ts = ts
 
-        # ΔP 游程
+        # ΔP 游程（≥15 通用；≥20 供 G3 专用）
         if dp is not None and dp >= DP_THR:
             self.dp_sustain += 1;  self.below_dp = 0
         else:
             self.dp_sustain = 0
             self.below_dp = (self.below_dp + 1) if dp is not None else 0
-
+        self.dp_g3_sustain = (self.dp_g3_sustain + 1) \
+            if (dp is not None and dp >= DP_G3_THR) else 0
         # MP 通用游程（≥17）
         if mp is not None and mp >= MP_THR:
             self.mp_sustain += 1;  self.below_mp = 0
         else:
             self.mp_sustain = 0
             self.below_mp = (self.below_mp + 1) if mp is not None else 0
-
         # MP G3 专用游程
         g3_thr = MP_G3_HIGH_THR if self.stratum == "high" else MP_G3_LOW_THR
-        if mp is not None and mp >= g3_thr:
-            self.mp_g3_sustain += 1
-        else:
-            self.mp_g3_sustain = 0
+        self.mp_g3_sustain = (self.mp_g3_sustain + 1) \
+            if (mp is not None and mp >= g3_thr) else 0
 
-        # 候选级（防抖最小落点：任何超标<15min 只允许到 G1）
-        cand = grade_from_metrics(
-            dp_tat_24h, mp_tat_24h, dp, mp, self.stratum,
-            self.dp_sustain, dp_slope_up, self.mp_sustain, self.mp_g3_sustain,
-        )
-        if (dp is not None and dp >= DP_THR and self.dp_sustain < HARD_FLOOR_MIN):
-            cand = min(cand, G1)
-        if (mp is not None and mp >= MP_THR and self.mp_sustain < HARD_FLOOR_MIN):
-            cand = min(cand, G1)
-
-        # 回落解除：此前 ≥G2 且回落稳定 ≥10min → 降回 G1
-        if self.prev_grade >= G2:
-            if (dp is not None and dp < DP_THR and self.below_dp >= RELEASE_MIN) or \
-               (mp is not None and mp < MP_THR and self.below_mp >= RELEASE_MIN):
-                cand = min(cand, G1)
+        self.tat_grade = _tat_grade(dp_tat_24h, mp_tat_24h, self.stratum)
+        # 回落解除：瞬时维度此前 ≥G2 且值已回落维持 ≥10min → 临时压低瞬时级
+        sustain_suppressed = False
+        if self.sustain_grade >= G2:
+            if ((dp is not None and dp < DP_THR and self.below_dp >= RELEASE_MIN) or
+                    (mp is not None and mp < MP_THR and self.below_mp >= RELEASE_MIN)):
+                sustain_suppressed = True
+        self.sustain_grade = _sustain_grade(
+            dp, mp, self.stratum, self.dp_sustain, self.dp_g3_sustain, dp_slope_up,
+            self.mp_sustain, self.mp_g3_sustain)
+        if sustain_suppressed:
+            self.sustain_grade = min(self.sustain_grade, G1)
 
         self.prev_grade = self.grade
-        self.grade = cand
+        self.grade = max(self.tat_grade, self.sustain_grade)
         self.event = ("raise" if self.grade > self.prev_grade
                       else "release" if self.grade < self.prev_grade else None)
         self.history.append({"ts": ts, "grade": self.grade, "event": self.event,
