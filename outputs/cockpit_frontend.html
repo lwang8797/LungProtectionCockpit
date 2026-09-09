@@ -683,6 +683,7 @@ var CUM = {
 var CUM_DEFAULT = Object.assign({}, CUM);
 var CUM_SEEDED = false;
 var anGradeCache = null;   // /api/analysis 的 grade 缓存（供双环满量程按顺应性分层取值）
+var cusumCache = null;     // /api/analysis 的 cusum 缓存（供趋势图绘制「基线漂移标记旗」）
 var curWin = {dp:1440, mp:1440};
 var ws = null;
 var ovData = null;
@@ -843,7 +844,25 @@ function drawTrend(svgId, tipId, win, key, validKey, T, yMin, yMax, unit, color,
   var L=46,R=10,Tp=8,B=40, pw=W-L-R, ph=H-Tp-B;
   var arr=data.slice(N-win);
   if(arr.length===0){ svg.appendChild(txt(W/2,H/2,'暂无数据',{'font-size':14,fill:'#7C8694','text-anchor':'middle'})); return; }
-  function X(idx){ return L+idx/(win-1)*pw; }
+  // ── URS 07-2：横轴改「真实时钟」──
+  // 旧版按点索引等距切片（X(idx)=idx/(win-1)*pw），稀疏数据会把 14h 断流压缩成 1 个点宽，
+  // 时间轴严重失真。此处改为按真实时间戳线性映射到画布：断流处自然留白，趋势形状才可信。
+  function toMs(s){ if(!s) return 0; var x=new Date(s).getTime(); return isNaN(x)?0:x; }
+  var t0=0, t1=0;
+  for(var q0=0;q0<arr.length;q0++){ var m0=toMs(arr[q0].dt); if(m0){ t0=m0; break; } }
+  for(var q1=arr.length-1;q1>=0;q1--){ var m1=toMs(arr[q1].dt); if(m1){ t1=m1; break; } }
+  var useTimeAxis = (t0>0 && t1>0 && t1>t0);
+  if(useTimeAxis){
+    // 窗口若不足理论时长（数据稀疏），仍按真实时间铺满，避免图形被拉扁在左侧
+    var wantMs = win*60000;
+    if(t1-t0 < wantMs*0.5) t0 = t1 - wantMs;   // 数据太短时向左补足窗口长度
+  }
+  function X(idx){
+    if(!useTimeAxis) return L+idx/(win-1)*pw;
+    var m=toMs(arr[idx].dt); if(!m) m=t0;
+    var f=(m-t0)/((t1-t0)||1);
+    return L+Math.max(0,Math.min(1,f))*pw;
+  }
   function Y(v){ return Tp+(yMax-Math.min(Math.max(v,yMin),yMax))/(yMax-yMin)*ph; }
   var yT=Y(T);
   for(var v=yMin; v<=yMax; v+=(yMax-yMin)/4){
@@ -851,11 +870,24 @@ function drawTrend(svgId, tipId, win, key, validKey, T, yMin, yMax, unit, color,
     svg.appendChild(el('line',{x1:L,y1:gy,x2:W-R,y2:gy,stroke:'rgba(255,255,255,.05)','stroke-width':1}));
     svg.appendChild(txt(L-6,gy+4,v.toFixed(0),{'font-size':10,fill:'#7C8694','text-anchor':'end'}));
   }
-  var step = win===1440?180: win===360?60:10;
-  for(var i=0;i<win;i+=step){
-    var d=arr[i]; if(!d) continue;
-    svg.appendChild(txt(X(i),H-24,d.t,{'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
-    svg.appendChild(el('line',{x1:X(i),y1:Tp+ph,x2:X(i),y2:Tp+ph+4,stroke:'rgba(255,255,255,.12)'}));
+  // 时间刻度：真实时钟轴上按等时间间隔打点；退化时回退到按点标签
+  if(useTimeAxis){
+    var tickStep = win>=4320 ? 12*3600*1000 : win>=1440 ? 6*3600*1000 : win>=360 ? 2*3600*1000 : 20*60*1000;
+    var tStart = Math.ceil(t0/tickStep)*tickStep;
+    for(var tt=tStart; tt<=t1; tt+=tickStep){
+      var fx=(tt-t0)/((t1-t0)||1); var tx=L+fx*pw;
+      var dd=new Date(tt);
+      var lbl=('0'+dd.getHours()).slice(-2)+':'+('0'+dd.getMinutes()).slice(-2);
+      svg.appendChild(txt(tx,H-24,lbl,{'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
+      svg.appendChild(el('line',{x1:tx,y1:Tp+ph,x2:tx,y2:Tp+ph+4,stroke:'rgba(255,255,255,.12)'}));
+    }
+  } else {
+    var step = win===1440?180: win===360?60:10;
+    for(var i=0;i<win;i+=step){
+      var d=arr[i]; if(!d) continue;
+      svg.appendChild(txt(X(i),H-24,d.t,{'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
+      svg.appendChild(el('line',{x1:X(i),y1:Tp+ph,x2:X(i),y2:Tp+ph+4,stroke:'rgba(255,255,255,.12)'}));
+    }
   }
   svg.appendChild(el('line',{x1:L,y1:yT,x2:W-R,y2:yT,stroke:'#EF4444','stroke-width':1.6,'stroke-dasharray':'7 5'}));
   svg.appendChild(txt(W-R,yT-6,'阈值 '+T.toFixed(1)+' '+unit,{'font-size':10.5,fill:'#EF4444','text-anchor':'end','font-weight':'bold'}));
@@ -884,13 +916,41 @@ function drawTrend(svgId, tipId, win, key, validKey, T, yMin, yMax, unit, color,
       }
     }
   });
-  if(showCp){ changePts.forEach(function(cp){ if(cp.i > N-win && cp.i < N){
-    var li=N-1-cp.i, x=X(li);
-    if(x<L||x>W-R) return;
-    svg.appendChild(el('line',{x1:x,y1:Tp,x2:x,y2:Tp+ph,stroke:'#3B82F6','stroke-width':1.4,'stroke-dasharray':'3 4'}));
-    svg.appendChild(el('circle',{cx:x,cy:Y(data[cp.i][key]),r:5,fill:'#0E1218',stroke:'#3B82F6','stroke-width':2.4}));
-    svg.appendChild(el('path',{d:'M'+(x-5)+' '+(Y(data[cp.i][key])-11)+'L'+(x+5)+' '+(Y(data[cp.i][key])-11)+'L'+x+' '+(Y(data[cp.i][key])-3)+'Z',fill:'#3B82F6'}));
-  }});}
+  if(showCp){
+    // URS 07-2：CUSUM 变化点「基线漂移标记旗」——优先用后端 /api/analysis 的 cusum（FR-05 真算法），
+    // 仅在后端不可用时回退到前端相邻差分启发式（changePts）。
+    var flags = [];
+    var cus = (cusumCache && cusumCache[key]) ? cusumCache[key].change_points : null;
+    if(cus && cus.length){
+      cus.forEach(function(c){
+        var ms = (c.ts!=null) ? c.ts : toMs(c.t_iso||c.iso||c.dt);
+        if(!ms || !useTimeAxis) return;
+        if(ms < t0 || ms > t1) return;
+        flags.push({x: L+((ms-t0)/((t1-t0)||1))*pw, dir: (c.side||c.direction||'up'), src:'cusum'});
+      });
+    }
+    if(!flags.length){
+      changePts.forEach(function(cp){
+        if(cp.i > N-win && cp.i < N){
+          var x=X(N-1-cp.i);
+          if(x<L||x>W-R) return;
+          flags.push({x:x, dir:(cp.dir||'up'), src:'local', i:cp.i});
+        }
+      });
+    }
+    flags.forEach(function(f){
+      var x=f.x, fy = f.src==='local' ? Y(data[f.i][key]) : Tp+16;
+      var up = (f.dir==='up'||f.dir===1||f.dir==='+'||f.dir==='raise');
+      var fc = up ? '#EF4444' : '#3B82F6';
+      svg.appendChild(el('line',{x1:x,y1:Tp,x2:x,y2:Tp+ph,stroke:fc,'stroke-width':1.4,'stroke-dasharray':'3 4',opacity:.75}));
+      // 旗杆 + 三角旗（URS：基线漂移标记旗）
+      svg.appendChild(el('line',{x1:x,y1:fy,x2:x,y2:fy-16,stroke:fc,'stroke-width':1.6}));
+      svg.appendChild(el('path',{d:'M'+x+' '+(fy-16)+'L'+(x+13)+' '+(fy-11)+'L'+x+' '+(fy-6)+'Z',fill:fc}));
+      svg.appendChild(txt(x+16, fy-9, (up?'基线漂移↑':'基线漂移↓'), {'font-size':9.5,fill:fc}));
+      var tt=document.createElementNS(SVGNS,'title'); tt.textContent='CUSUM 变化点 · 基线漂移 ('+(f.src==='cusum'?'后端 CUSUM':'本地启发式')+')';
+      svg.lastChild.appendChild(tt);
+    });
+  }
   svg.appendChild(txt(L+2,Tp+11,unit,{'font-size':10,fill:'#7C8694'}));
 
   var tip=document.getElementById(tipId);
@@ -1529,7 +1589,16 @@ async function loadAnalysis(){
     renderSlopeTable('anMpSlope', d.slope&&d.slope.mp);
     renderComplianceCard(g);
     drawOverviewGauges();             // 分层更新后重算双环满量程
+    if(d.cusum){ cusumCache = d.cusum; redrawTrends(); }   // URS 07-2 漂移旗标
   } catch(e){ console.error('loadAnalysis error:', e); }
+}
+
+// 趋势图重绘（CUSUM 数据到达后刷新旗标）
+function redrawTrends(){
+  try{
+    drawTrend('dpChart','dpTip',curWin.dp,'dp','dpValid',TH.dp,8,22,'cmH₂O','#3B82F6',true);
+    drawTrend('mpChart','mpTip',curWin.mp,'mp','mpValid',TH.mp,8,26,'J/min','#A855F7',false);
+  }catch(e){ console.error('redrawTrends error:', e); }
 }
 
 // URS 07-3：顺应性分层标签卡（CRS 数值 + 分组 + 本层安全功率上限）
