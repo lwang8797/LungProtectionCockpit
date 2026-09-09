@@ -421,6 +421,34 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <div class="note" id="cmpNote" style="margin-bottom:0;">分层口径：C<sub>RS</sub> 按有效通气时长加权滚动，与 24h 窗口同口径；分层仅影响 MP 轨道阈值，ΔP 轨道恒用 15 cmH₂O。</div>
         </div>
 
+        <!-- URS 07-4：班次导出与交接班摘要 -->
+        <div class="card" id="shiftCard">
+          <h3>交接班摘要 · 临床力学交接单
+            <span class="hint" style="margin-left:auto;">URS 07-4｜服务端口径（与 G0-G3 判级一致）</span>
+          </h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+            <div class="seg" id="shiftWin">
+              <button class="btn" data-h="8">8 小时</button>
+              <button class="btn on" data-h="12">12 小时</button>
+              <button class="btn" data-h="24">24 小时</button>
+            </div>
+            <button class="btn" id="shiftExport" style="margin-left:auto;">导出交接单 CSV</button>
+          </div>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
+            <div class="pcell"><div class="k">本班最高 ΔP</div><div class="v" id="shDpMax">-- <small>cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">本班最高 MP</div><div class="v" id="shMpMax">-- <small>J/min</small></div></div>
+            <div class="pcell"><div class="k">超标总时长 ΔP≥15</div><div class="v" id="shDpTat">-- <small>h</small></div></div>
+            <div class="pcell"><div class="k">超标总时长 MP≥17</div><div class="v" id="shMpTat">-- <small>h</small></div></div>
+          </div>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
+            <div class="pcell"><div class="k">ΔP AUC 增量</div><div class="v" id="shDpAuc">-- <small>cmH₂O·h</small></div></div>
+            <div class="pcell"><div class="k">MP AUC 增量</div><div class="v" id="shMpAuc">-- <small>J·h/min</small></div></div>
+            <div class="pcell"><div class="k">趋势斜率方向</div><div class="v" id="shSlope">--</div></div>
+            <div class="pcell"><div class="k">预警 / 已确认</div><div class="v" id="shAlerts">--</div></div>
+          </div>
+          <div id="shMeta" style="font-size:11.5px;color:var(--t-3);line-height:1.7;"></div>
+        </div>
+
         <!-- P1：免责声明（NFR-03）常驻 -->
         <div class="card" style="border-left:4px solid var(--watch);">
           <div style="font-size:12.5px;color:var(--t-2);line-height:1.75;">
@@ -438,7 +466,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <div class="seg" id="dpWin" style="margin-left:auto;">
             <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button><button class="btn" data-w="4320">72小时</button>
           </div>
-          <button class="btn" onclick="toast('导出当前窗口 1 分钟粒度 CSV')">导出 CSV</button>
+          <button class="btn" onclick="exportTrendCsv('dp')">导出 CSV</button>
         </div>
         <div class="stat4" id="dpStats"></div>
         <div class="trend-layout">
@@ -468,7 +496,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <div class="seg" id="mpWin" style="margin-left:auto;">
             <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button><button class="btn" data-w="4320">72小时</button>
           </div>
-          <button class="btn" onclick="toast('导出当前窗口 1 分钟粒度 CSV')">导出 CSV</button>
+          <button class="btn" onclick="exportTrendCsv('mp')">导出 CSV</button>
         </div>
         <div class="stat4" id="mpStats"></div>
         <div class="trend-layout">
@@ -1391,6 +1419,12 @@ function gotoPage(pg){
 document.querySelectorAll('.navitem').forEach(function(n){ n.addEventListener('click',function(){ gotoPage(n.dataset.page); }); });
 document.getElementById('dpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');}); e.target.classList.add('on'); curWin.dp=+e.target.dataset.w; renderDp(curWin.dp);} });
 document.getElementById('mpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');}); e.target.classList.add('on'); curWin.mp=+e.target.dataset.w; renderMp(curWin.mp);} });
+// URS 07-4：交接班窗口切换 + 导出
+document.getElementById('shiftWin').addEventListener('click',function(e){
+  if(e.target.dataset.h){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');});
+    e.target.classList.add('on'); shiftHours=+e.target.dataset.h; loadShiftSummary(); }
+});
+document.getElementById('shiftExport').addEventListener('click', exportShiftCsv);
 
 // ==================== Threshold Settings ====================
 var sldDp=document.getElementById('sldDp'), sldMp=document.getElementById('sldMp');
@@ -1552,6 +1586,7 @@ async function fetchOverview(){
     ovData = await r.json();
     updateOverviewUI(ovData);
     loadAnalysis();
+    loadShiftSummary();
   } catch(e) { console.error('fetchOverview error:', e); }
 }
 
@@ -1591,6 +1626,119 @@ async function loadAnalysis(){
     drawOverviewGauges();             // 分层更新后重算双环满量程
     if(d.cusum){ cusumCache = d.cusum; redrawTrends(); }   // URS 07-2 漂移旗标
   } catch(e){ console.error('loadAnalysis error:', e); }
+}
+
+// ── URS 07-4：交接班摘要 ──
+var shiftHours = 12;
+var shiftCache = null;
+async function loadShiftSummary(){
+  try{
+    var r = await fetch(API + '/api/shift-summary?hours=' + shiftHours);
+    var d = await r.json();
+    if(d.error){ var m=document.getElementById('shMeta'); if(m) m.textContent='暂无数据（'+(d.error||'')+'）'; return; }
+    shiftCache = d;
+    var set=function(id,v,suf,dec){
+      var e=document.getElementById(id); if(!e) return;
+      e.innerHTML = (v==null||isNaN(v)) ? '--' : ((+v).toFixed(dec==null?2:dec)) + (suf?' <small>'+suf+'</small>':'');
+    };
+    var pk=d.peak||{}, tt=d.tat||{}, au=d.auc||{}, sd=d.slope_direction||{}, al=d.alerts||{};
+    set('shDpMax', pk.dp_max, 'cmH₂O', 1);
+    set('shMpMax', pk.mp_max, 'J/min', 2);
+    set('shDpTat', tt.dp_hours, 'h', 2);
+    set('shMpTat', (tt.mp_hours && tt.mp_hours.mp17!=null) ? tt.mp_hours.mp17 : null, 'h', 2);
+    set('shDpAuc', au.dp_auc_h, 'cmH₂O·h', 2);
+    set('shMpAuc', (au.mp_auc_h && au.mp_auc_h.mp17!=null) ? au.mp_auc_h.mp17 : null, 'J·h/min', 2);
+
+    var sl=document.getElementById('shSlope');
+    if(sl){
+      var up=(sd.dp==='上升'), dn=(sd.dp==='下降');
+      sl.innerHTML = 'ΔP '+sd.dp+'　MP '+sd.mp;
+      sl.style.color = up ? 'var(--danger)' : (dn ? 'var(--ok)' : 'var(--t-2)');
+    }
+    var al2=document.getElementById('shAlerts');
+    if(al2) al2.innerHTML = (al.count||0) + ' / ' + (al.acknowledged||0) + ' <small>条已确认</small>';
+
+    var m=document.getElementById('shMeta');
+    if(m){
+      m.innerHTML = '窗口：'+(d.window_start_iso||'').slice(0,16).replace('T',' ')+' → '+(d.window_end_iso||'').slice(0,16).replace('T',' ')
+        +'　·　通气 '+(d.vent_hours!=null?d.vent_hours:'--')+' h　·　断流 '+(d.gap_minutes!=null?d.gap_minutes:'--')+' min'
+        +'　·　DCR '+(d.dcr!=null?d.dcr:'--')+'%'
+        +'　·　C<sub>RS</sub> '+(d.compliance_mean!=null?d.compliance_mean:'--')
+        +'（'+(d.compliance_stratum==='high'?'高顺应性':'低顺应性')+'）';
+    }
+  }catch(e){ console.error('loadShiftSummary error:', e); }
+}
+
+// 导出交接班摘要为 CSV（含汇总头 + 预警明细）
+function exportShiftCsv(){
+  if(!shiftCache){ toast('暂无交接班数据可导出'); return; }
+  var d=shiftCache, L=[];
+  L.push('肺保护驾驶舱 · 临床力学交接单');
+  L.push('设备,'+d.device+',班次时长(h),'+d.hours);
+  L.push('窗口起,'+(d.window_start_iso||'')+',窗口止,'+(d.window_end_iso||''));
+  L.push('');
+  L.push('指标,数值,单位');
+  L.push('最高 ΔP,'+(d.peak&&d.peak.dp_max!=null?d.peak.dp_max:'')+',cmH2O');
+  L.push('最高 MP,'+(d.peak&&d.peak.mp_max!=null?d.peak.mp_max:'')+',J/min');
+  L.push('ΔP 超标总时长,'+(d.tat&&d.tat.dp_hours!=null?d.tat.dp_hours:'')+',h');
+  L.push('MP 超标总时长(≥17),'+(d.tat&&d.tat.mp_hours&&d.tat.mp_hours.mp17!=null?d.tat.mp_hours.mp17:'')+',h');
+  L.push('ΔP AUC 增量,'+(d.auc&&d.auc.dp_auc_h!=null?d.auc.dp_auc_h:'')+',cmH2O·h');
+  L.push('MP AUC 增量(≥17),'+(d.auc&&d.auc.mp_auc_h&&d.auc.mp_auc_h.mp17!=null?d.auc.mp_auc_h.mp17:'')+',J·h/min');
+  L.push('通气时长,'+(d.vent_hours!=null?d.vent_hours:'')+',h');
+  L.push('断流时长,'+(d.gap_minutes!=null?d.gap_minutes:'')+',min');
+  L.push('数据完整率 DCR,'+(d.dcr!=null?d.dcr:'')+',%');
+  L.push('CRS,'+(d.compliance_mean!=null?d.compliance_mean:'')+',mL/cmH2O');
+  L.push('顺应性分层,'+(d.compliance_stratum==='high'?'高顺应性肺/剂量敏感型':'低顺应性肺/窄带耐受型'));
+  L.push('ΔP 趋势方向,'+(d.slope_direction&&d.slope_direction.dp||''));
+  L.push('MP 趋势方向,'+(d.slope_direction&&d.slope_direction.mp||''));
+  L.push('');
+  var al=d.alerts||{};
+  L.push('预警总数,'+(al.count||0)+',已确认,'+(al.acknowledged||0));
+  L.push('时间,等级,类别,消息,状态');
+  (al.items||[]).forEach(function(a){
+    var t=a.ts_iso||(a.ts?new Date(a.ts).toISOString():'');
+    var st=a.acknowledged?('已确认'+(a.acknowledged_by?('·'+a.acknowledged_by):'')):(a.active?'活动中':'已恢复');
+    L.push([t,a.risk_level||'',a.category||'',('"'+String(a.message||'').replace(/"/g,'""')+'"'),st].join(','));
+  });
+  L.push('');
+  L.push('免责声明,本系统提供暴露累积剂量与趋势统计，仅供临床诊疗决策参考，不作为调整通气参数的唯一依据');
+  downloadCsv(L.join('\n'), '交接班摘要_'+d.device+'_'+d.hours+'h.csv');
+}
+
+// 导出当前趋势窗口的 1 分钟粒度 CSV（替换原 toast 占位）
+function exportTrendCsv(kind){
+  if(!N || N===0){ toast('暂无数据可导出'); return; }
+  var win = (kind==='mp') ? curWin.mp : curWin.dp;
+  var arr = data.slice(Math.max(0, N-win));
+  var isMp = (kind==='mp');
+  var key  = isMp ? 'mp' : 'dp';
+  var unit = isMp ? 'J/min' : 'cmH2O';
+  var th   = isMp ? TH.mp : TH.dp;
+  var L=[];
+  L.push('肺保护驾驶舱 · 1 分钟粒度力学明细（'+(isMp?'MP':'ΔP')+'）');
+  L.push('设备,'+(ovData&&ovData.device?ovData.device:'')+',窗口(分钟),'+win+',阈值,'+th);
+  L.push('');
+  L.push('时间,'+(isMp?'MP':'DP')+'('+unit+'),是否有效,超阈值');
+  arr.forEach(function(d){
+    var v = d[key];
+    var valid = isMp ? d.mpValid : d.dpValid;
+    L.push([d.dt||d.t||'', (valid&&v!=null)?(+v).toFixed(2):'', valid?'是':'否',
+            (valid&&v!=null&&v>th)?'是':'否'].join(','));
+  });
+  L.push('');
+  L.push('免责声明,本系统提供暴露累积剂量与趋势统计，仅供临床诊疗决策参考，不作为调整通气参数的唯一依据');
+  downloadCsv(L.join('\n'), (isMp?'MP':'DP')+'趋势_'+win+'min.csv');
+}
+
+function downloadCsv(content, filename){
+  // 加 BOM，避免 Excel 打开中文乱码
+  var blob=new Blob(['\ufeff'+content], {type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  toast('已导出 '+filename);
 }
 
 // 趋势图重绘（CUSUM 数据到达后刷新旗标）

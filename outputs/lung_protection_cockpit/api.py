@@ -919,6 +919,110 @@ async def get_analysis(
     return _clean_nan(data)
 
 
+def _compute_shift_summary(device_id: str, hours: float) -> dict:
+    """URS 07-4 交接班摘要：汇总本班次（8/12/24h）力学暴露与干预记录。
+
+    口径一律复用既有函数，避免与 G0-G3 判级、24h 滚动窗口打架：
+      - 最高暴露 / 超标总时长 / AUC 增量 → _window_cumulative（真实时间积分）
+      - 趋势斜率方向 → analyzer.sliding_slopes（1/6/24h β）
+      - 预警干预记录 → cockpit_alerts（含确认状态）
+    """
+    db = get_database()
+    latest_ts = get_latest_minute_ts(db, device_id)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, device_id)
+    if latest_ts == 0:
+        return {"error": "no_data", "device": device_id}
+
+    start_ts = latest_ts - int(hours * 3600 * 1000)
+    win = _window_cumulative(db, device_id, start_ts, latest_ts, hours)
+
+    # 趋势斜率方向（复用 FR-05 引擎）
+    docs = list(db[COLL_1MIN].find(
+        {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts},
+         "dp_mean": {"$ne": None}, "mp_mean": {"$ne": None}},
+        {"_id": 0, "minute": 1, "dp_mean": 1, "mp_mean": 1, "vt_mean": 1,
+         "is_ventilating": 1},
+    ).sort("minute", 1))
+    series = _minute_docs_to_series(docs)
+    slope_dp = ANZ.sliding_slopes(series, "dp") if series else {}
+    slope_mp = ANZ.sliding_slopes(series, "mp") if series else {}
+
+    def _dir(slopes) -> str:
+        """斜率方向：优先 6h 窗，退化取 24h/1h。"""
+        for w in (6.0, 24.0, 1.0):
+            s = slopes.get(w, {})
+            b = s.get("beta")
+            if b is None:
+                continue
+            if b > 0.01:
+                return "上升"
+            if b < -0.01:
+                return "下降"
+            return "平稳"
+        return "数据不足"
+
+    # 预警干预记录（本班次窗口内）
+    alerts = list(db[COLL_ALERTS].find(
+        {"deviceId": device_id, "ts": {"$gte": start_ts, "$lte": latest_ts}},
+    ).sort("ts", -1).limit(50))
+    alert_list = [_serialize_alert(a) for a in alerts]
+
+    stratum = (win or {}).get("compliance_stratum")
+    return {
+        "device": device_id,
+        "hours": hours,
+        "window_start_iso": datetime.fromtimestamp(
+            start_ts / 1000, tz=timezone.utc).isoformat(),
+        "window_end_iso": datetime.fromtimestamp(
+            latest_ts / 1000, tz=timezone.utc).isoformat(),
+        "peak": {
+            "dp_max": round(max((r["dp"] for r in series if r["dp"] is not None),
+                                default=float("nan")), 1),
+            "mp_max": round(max((r["mp"] for r in series if r["mp"] is not None),
+                                default=float("nan")), 2),
+        },
+        "tat": {
+            "dp_hours": (win or {}).get("dp_tat_hours"),
+            "mp_hours": (win or {}).get("mp_tat_hours"),
+        },
+        "auc": {
+            "dp_auc_h": (win or {}).get("dp_auc_h"),
+            "mp_auc_h": (win or {}).get("mp_auc_h"),
+        },
+        "vent_hours": (win or {}).get("vent_hours"),
+        "gap_minutes": (win or {}).get("gap_minutes"),
+        "dcr": (win or {}).get("dcr"),
+        "compliance_mean": (win or {}).get("compliance_mean"),
+        "compliance_stratum": stratum,
+        "slope_direction": {"dp": _dir(slope_dp), "mp": _dir(slope_mp)},
+        "slope_detail": {"dp": slope_dp, "mp": slope_mp},
+        "alerts": {
+            "count": len(alert_list),
+            "acknowledged": sum(1 for a in alert_list if a.get("acknowledged")),
+            "items": alert_list[:10],
+        },
+        "thresholds": {"dp": DP_THRESHOLD, "mp": MP_THRESHOLD},
+    }
+
+
+@app.get("/api/shift-summary")
+async def get_shift_summary(
+    deviceId: str = Query(default=DEVICE_ID),
+    hours: float = Query(default=8, ge=0.5, le=168),
+):
+    """URS 07-4：交接班摘要（8/12/24h 临床力学交接单数据）。
+
+    服务端计算以保证与 G0-G3 防抖判级、24h 滚动窗口口径一致；前端只渲染与导出。
+    """
+    try:
+        data = _compute_shift_summary(deviceId, hours)
+    except Exception as e:
+        logger.exception("shift-summary failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    return _clean_nan(data)
+
+
 def _serialize_alert(doc: dict) -> dict:
     """把 MongoDB 文档转为前端可消费的 JSON 结构。
 
