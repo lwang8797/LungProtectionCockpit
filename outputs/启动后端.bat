@@ -1,21 +1,21 @@
 @echo off
-REM è‚ºä¿æŠ¤é©¾é©¶èˆ± - åŽç«¯ä¸€é”®å¯åŠ¨ (Windows)
-REM è‡ªåŠ¨åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒã€å®‰è£…ä¾èµ–ã€è®¾ç½® PYTHONPATH å¹¶å¯åŠ¨æœåŠ¡
+REM ·Î±£»¤¼ÝÊ»²Õ - ºó¶ËÒ»¼üÆô¶¯ (Windows)
+REM ×Ô¶¯´´½¨ÐéÄâ»·¾³¡¢°²×°ÒÀÀµ¡¢ÉèÖÃ PYTHONPATH ²¢Æô¶¯·þÎñ
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\activate.bat" (
-    echo [1/3] åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒ .venv ...
+    echo [1/3] ´´½¨ÐéÄâ»·¾³ .venv ...
     python -m venv .venv
     call .venv\Scripts\activate.bat
-    echo [2/3] å®‰è£…ä¾èµ– ...
+    echo [2/3] °²×°ÒÀÀµ ...
     python -m pip install -r lung_protection_cockpit/requirements.txt
 ) else (
     call .venv\Scripts\activate.bat
 )
 
-REM é»˜è®¤ç«¯å£ 8090ï¼ˆ8080 å¸¸è¢«æœ¬æœº ApplicationWebServer.exe å ç”¨ï¼Œä¼šæŠ¥ WinError 10048ï¼‰ã€‚
-REM å¦‚éœ€æ”¹ç”¨ 8080ï¼Œè¯·å…ˆå…³é—­å ç”¨ 8080 çš„ç¨‹åºï¼Œæˆ–æ”¹ COCKPIT_PORT=8080ã€‚
-echo [3/3] å¯åŠ¨æœåŠ¡ï¼ˆå›žå¡«æœ€è¿‘ 24h + APIï¼Œç«¯å£é»˜è®¤ 8090ï¼‰...
+REM Ä¬ÈÏ¶Ë¿Ú 8090£¨8080 ³£±»±¾»ú ApplicationWebServer.exe Õ¼ÓÃ£¬»á±¨ WinError 10048£©¡£
+REM ÈçÐè¸ÄÓÃ 8080£¬ÇëÏÈ¹Ø±ÕÕ¼ÓÃ 8080 µÄ³ÌÐò£¬»ò¸Ä COCKPIT_PORT=8080¡£
+echo [3/3] Æô¶¯·þÎñ£¨»ØÌî×î½ü 24h + API£¬¶Ë¿ÚÄ¬ÈÏ 8090£©...
 set PYTHONPATH=.
 set COCKPIT_PORT=8090
 python -m lung_protection_cockpit.main all --hours 24

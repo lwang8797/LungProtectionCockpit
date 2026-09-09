@@ -14,12 +14,14 @@ COLL_ALERTS = "cockpit_alerts"     # 预警事件（本服务创建）
 COLL_WORK_MODE = "work_mode"       # 通气模式集合（仅在变化时写入）
 
 # 当前呼吸机设备。可用环境变量 COCKPIT_DEVICE_ID 临时覆盖。
-# 注（2026-09-09 实测）：measure_param 全集合现仅剩 1787816609 的 480 条（30 批 × 16 参数，
-#   跨度 2026-08-27 07:44 ~ 08-28 01:46 UTC）。历史设备 ATVIPVTEST1 的数据已被平台侧清理，
-#   count = 0（history-data 库 measure_param_all 亦只有 1787816609 的 480 条）。
-#   两台设备 paramId 方案一致，若 ATVIPVTEST1 数据回填，改这里即可切换。
+# 注（2026-09-09 实测）：真实接入设备会轮换。当日出现过的真实设备及其最新数据：
+#   1788936676（最新，144 条，latest≈07:14 UTC）/ 1788932533（64 条，05:59 UTC）
+#   / 1787816609（480 条，停 2026-08-28，旧）。历史 ATVIPVTEST1 已被平台侧清理。
+#   各真实设备 paramId 方案一致（101=Ppeak/102=Pplat/104=PEEP/106=Vte/110=Vti/113=fTotal）。
+#   模拟设备以 SIM 前缀命名（如 SIM900000001），仅供 seed_sim_device.py 演示使用，
+#   **不要**把默认 DEVICE_ID 指向模拟设备。
 DEVICE_ID = os.environ.get("COCKPIT_DEVICE_ID", "1788936676")
-KNOWN_DEVICES = ["1787816609", "ATVIPVTEST1"]
+KNOWN_DEVICES = ["1787816609", "1788932533", "1788936676", "ATVIPVTEST1"]
 
 # ── 参数 paramId -> 标准化名 ──
 # 注意：PR(128) 是患者自主呼吸频率，测试环境恒为"---"
