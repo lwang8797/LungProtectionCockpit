@@ -256,24 +256,55 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           </div>
         </div>
 
+        <!-- URS 07-1：累积剂量计双环表（外环 ΔP / 内环 MP） -->
+        <div class="card" id="doseCard" style="margin-bottom:14px;">
+          <h3>累积剂量计 · 双环暴露表
+            <span class="hint" style="margin-left:auto;">URS 07-1｜外环 ΔP、内环 MP｜满环 = 本层 L4 危险阈值</span>
+          </h3>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+            <div style="flex:1 1 320px;min-width:300px;display:flex;justify-content:center;">
+              <svg id="doseGauge" width="100%" height="260" viewBox="0 0 320 260" preserveAspectRatio="xMidYMid meet"></svg>
+            </div>
+            <div style="flex:1 1 300px;min-width:260px;font-size:12.5px;color:var(--t-2);line-height:1.85;">
+              <div style="margin-bottom:6px;"><b style="color:var(--t-1)">外环 ΔP 累积剂量</b><br>
+                TAT <b id="doseDpTat" style="color:var(--t-1)">--</b> h　/　满环 <span id="doseDpFull">6.0</span> h<br>
+                AUC <b id="doseDpAuc" style="color:var(--t-1)">--</b> cmH₂O·h</div>
+              <div><b style="color:var(--t-1)">内环 MP 累积剂量</b><br>
+                TAT <b id="doseMpTat" style="color:var(--t-1)">--</b> h　/　满环 <span id="doseMpFull">--</span> h<br>
+                AUC <b id="doseMpAuc" style="color:var(--t-1)">--</b> J·h/min</div>
+              <div style="margin-top:8px;color:var(--t-3);font-size:11.5px;" id="doseNote">
+                四色：绿 &lt;50% · 黄 50–75% · 橙 75–100% · 红 ≥100%（已达 L4 危险量）
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="risk-grid">
-          <!-- ΔP 仪表盘卡：一图 + 一数 + 一句话 -->
-          <div class="risk-card lv-1">
+          <!-- 瞬时值紧凑卡（原半圆表按 URS 单屏解构改为数字卡） -->
+          <div class="risk-card lv-1" id="dpCard">
             <div class="head">
               <div class="lab">气道驱动压 ΔP<span class="unit" id="dpFormula">Pplat − PEEP</span><span class="dyn-tag" id="dpLiveDyn" hidden>*Dyn*</span></div>
               <span class="badge b-watch" id="dpCardBadge">关 注</span>
             </div>
-            <div class="gauge-wrap"><svg id="dpGauge" width="100%" height="170"></svg></div>
+            <div style="padding:14px 16px 6px;display:flex;align-items:baseline;gap:10px;">
+              <span id="dpInstant" style="font-size:44px;font-weight:800;line-height:1;color:var(--watch);">—</span>
+              <span style="font-size:13px;color:var(--t-3);">cmH₂O</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--t-3);">阈值 15</span>
+            </div>
             <div class="gauge-msg" id="dpGaugeMsg" style="color:var(--watch);">接近阈值 · 缓慢上行</div>
           </div>
 
-          <!-- MP 仪表盘卡 -->
-          <div class="risk-card lv-2">
+          <!-- MP 瞬时值紧凑卡 -->
+          <div class="risk-card lv-2" id="mpCard">
             <div class="head">
               <div class="lab">气道机械功率 MP<span class="unit" id="mpFormula">Gattinoni 公式</span><span class="dyn-tag" id="mpLiveDyn" hidden>*Dyn*</span></div>
               <span class="badge b-warn" id="mpCardBadge">偏 高</span>
             </div>
-            <div class="gauge-wrap"><svg id="mpGauge" width="100%" height="170"></svg></div>
+            <div style="padding:14px 16px 6px;display:flex;align-items:baseline;gap:10px;">
+              <span id="mpInstant" style="font-size:44px;font-weight:800;line-height:1;color:var(--warn);">—</span>
+              <span style="font-size:13px;color:var(--t-3);">J/min</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--t-3);">阈值 17</span>
+            </div>
             <div class="gauge-msg" id="mpGaugeMsg" style="color:var(--warn);">已越限 43 min · 能量增长快</div>
           </div>
 
@@ -651,6 +682,7 @@ var CUM = {
 };
 var CUM_DEFAULT = Object.assign({}, CUM);
 var CUM_SEEDED = false;
+var anGradeCache = null;   // /api/analysis 的 grade 缓存（供双环满量程按顺应性分层取值）
 var curWin = {dp:1440, mp:1440};
 var ws = null;
 var ovData = null;
@@ -921,16 +953,120 @@ function drawGauge(svgId, val, th, lo, hi, unit){
   svg.appendChild(txt(cx+r+sw/2, cy+16, hi, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
 }
 
-// 总览双仪表盘（自适应量程）：优先用 overview 当前值，回退到趋势末点
+// ── URS 07-1：累积剂量计双环表 ──
+// 外环 = ΔP 累积剂量，内环 = MP 累积剂量；满环按「本层 L4 危险阈值」小时数（用户选项①A）
+//   ΔP：CUM_DP_OVER_HOURS_L4 = 6h
+//   MP：高顺应性 6h / 低顺应性 24h（依 CRS 分层）
+// 四色：绿<50% 黄50-75% 橙75-100% 红>=100%
+var DOSE_COLORS = ['#22C55E','#EAB308','#F97316','#EF4444'];
+function doseRatio(tat, full){
+  if(tat==null || !full || full<=0) return null;
+  var r = (+tat)/(+full);
+  return Math.max(0, Math.min(1.25, r));   // 允许超满环 25% 以显示"已超 L4"
+}
+function doseColor(ratio){
+  if(ratio==null) return '#5F6672';
+  if(ratio>=1.0) return DOSE_COLORS[3];
+  if(ratio>=0.75) return DOSE_COLORS[2];
+  if(ratio>=0.5) return DOSE_COLORS[1];
+  return DOSE_COLORS[0];
+}
+// 画一段圆弧（startAngle/endAngle 为弧度，0=右侧，逆时针为正）
+function doseArcPath(cx, cy, r, a0, a1){
+  var x0=cx+r*Math.cos(a0), y0=cy-r*Math.sin(a0);
+  var x1=cx+r*Math.cos(a1), y1=cy-r*Math.sin(a1);
+  var large = Math.abs(a1-a0) > Math.PI ? 1 : 0;
+  var sweep = (a1>a0) ? 1 : 0;
+  return 'M'+x0.toFixed(2)+' '+y0.toFixed(2)+' A'+r+' '+r+' 0 '+large+' '+sweep+' '+x1.toFixed(2)+' '+y1.toFixed(2);
+}
+function drawDosimeter(dpTat, dpFull, mpTat, mpFull){
+  var svg=document.getElementById('doseGauge'); if(!svg) return;
+  svg.innerHTML='';
+  var W=320, H=260, cx=W/2, cy=H/2+18;
+  var rOut=112, rIn=82, sw=22;
+  var A0=Math.PI*0.82, A1=Math.PI*0.18;      // 起止角（左下 → 右下，走上方大弧）
+  var span = (Math.PI*2) - (A0-A1);          // 可用弧跨度
+  function angAt(ratio){ return A0 + span*Math.max(0,Math.min(1.25,ratio))/1.25; }
+
+  // 底槽
+  [rOut,rIn].forEach(function(r){
+    svg.appendChild(el('path',{d:doseArcPath(cx,cy,r,A0,A1),fill:'none',stroke:'rgba(255,255,255,.07)','stroke-width':sw,'stroke-linecap':'round'}));
+  });
+  // 四色分段底纹（按满环比例 0-50/50-75/75-100/100+）
+  var segs=[[0,0.5,0],[0.5,0.75,1],[0.75,1.0,2],[1.0,1.25,3]];
+  [rOut,rIn].forEach(function(r){
+    segs.forEach(function(s){
+      svg.appendChild(el('path',{d:doseArcPath(cx,cy,r,angAt(s[0]),angAt(s[1])),fill:'none',
+        stroke:DOSE_COLORS[s[2]],'stroke-width':sw,opacity:.13}));
+    });
+  });
+
+  var ratios = [doseRatio(dpTat,dpFull), doseRatio(mpTat,mpFull)];
+  var radii  = [rOut, rIn];
+  ratios.forEach(function(rt, i){
+    if(rt==null) return;
+    var c = doseColor(rt);
+    svg.appendChild(el('path',{d:doseArcPath(cx,cy,radii[i],A0,angAt(rt)),fill:'none',
+      stroke:c,'stroke-width':sw,'stroke-linecap':'round',opacity:.95}));
+  });
+
+  // 中央：当日累计 TAT + AUC（URS：中央显示 TAT 小时与 AUC 绝对值）
+  var dpPct = ratios[0]==null ? null : Math.round(ratios[0]*100);
+  var mpPct = ratios[1]==null ? null : Math.round(ratios[1]*100);
+  svg.appendChild(txt(cx, cy-26, '累计 TAT', {'font-size':11, fill:'#7C8694','text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy-2, (dpTat!=null?(+dpTat).toFixed(1):'—'), {'font-size':26,'font-weight':800,fill:doseColor(ratios[0]),'text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy+13, 'ΔP 小时（外环）', {'font-size':10.5,fill:'#7C8694','text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy+36, (mpTat!=null?(+mpTat).toFixed(1):'—'), {'font-size':20,'font-weight':800,fill:doseColor(ratios[1]),'text-anchor':'middle'}));
+  svg.appendChild(txt(cx, cy+50, 'MP 小时（内环）', {'font-size':10.5,fill:'#7C8694','text-anchor':'middle'}));
+
+  // 百分比标签
+  svg.appendChild(txt(cx-rOut-4, cy-4, dpPct==null?'—':(dpPct+'%'), {'font-size':11,'font-weight':600,fill:doseColor(ratios[0]),'text-anchor':'end'}));
+  svg.appendChild(txt(cx-rIn+2, cy+30, mpPct==null?'—':(mpPct+'%'), {'font-size':10.5,'font-weight':600,fill:doseColor(ratios[1]),'text-anchor':'end'}));
+}
+
+// 总览瞬时值：优先用 overview 当前值，回退到趋势末点；并驱动双环剂量计
 function drawOverviewGauges(){
   var dpVal = (ovData && ovData.dp && ovData.dp.current!=null) ? ovData.dp.current
             : (N>0 ? data[N-1].dp : null);
   var mpVal = (ovData && ovData.mp && ovData.mp.current!=null) ? ovData.mp.current
             : (N>0 ? data[N-1].mp : null);
-  var dpScale = computeScale(dpVal, TH.dp);
-  var mpScale = computeScale(mpVal, TH.mp);
-  drawGauge('dpGauge', dpVal, TH.dp, dpScale[0], dpScale[1], 'cmH₂O');
-  drawGauge('mpGauge', mpVal, TH.mp, mpScale[0], mpScale[1], 'J/min');
+
+  // ── 瞬时值紧凑数字卡（替换原半圆表）──
+  var dpEl=document.getElementById('dpInstant'), mpEl=document.getElementById('mpInstant');
+  if(dpEl){
+    dpEl.textContent = (dpVal==null||isNaN(dpVal)) ? '—' : (+dpVal).toFixed(1);
+    dpEl.style.color = RISK_C[gaugeLevel(dpVal==null?0:dpVal, TH.dp, TH.dp*2)];
+  }
+  if(mpEl){
+    mpEl.textContent = (mpVal==null||isNaN(mpVal)) ? '—' : (+mpVal).toFixed(2);
+    mpEl.style.color = RISK_C[gaugeLevel(mpVal==null?0:mpVal, TH.mp, TH.mp*2)];
+  }
+
+  // ── 双环累积剂量计 ──
+  var w = (ovData && ovData.cumulative && ovData.cumulative.window) ? ovData.cumulative.window : null;
+  var dpTat = w ? (w.dp_tat_hours!=null ? w.dp_tat_hours : null) : null;
+  var mpTat = w ? (w.mp_tat_hours!=null ? (typeof w.mp_tat_hours==='object' ? w.mp_tat_hours.mp17 : w.mp_tat_hours) : null) : null;
+  var dpAuc = w ? (w.dp_auc_h!=null ? w.dp_auc_h : null) : null;
+  var mpAuc = w ? (w.mp_auc_h!=null ? (typeof w.mp_auc_h==='object' ? w.mp_auc_h.mp17 : w.mp_auc_h) : null) : null;
+
+  // 满环 = 本层 L4 阈值（用户选项①A）
+  var dpFull = CUM && CUM.dpOverH4!=null ? CUM.dpOverH4 : 6;
+  var stratum = (anGradeCache && anGradeCache.stratum) ? anGradeCache.stratum : null;
+  var mpFull = stratum==='low' ? (CUM&&CUM.mpLowH4!=null?CUM.mpLowH4:24)
+                               : (CUM&&CUM.mpHighH4!=null?CUM.mpHighH4:6);
+
+  drawDosimeter(dpTat, dpFull, mpTat, mpFull);
+
+  var setTxt=function(id,v,suffix){
+    var e=document.getElementById(id); if(!e) return;
+    e.textContent = (v==null||isNaN(v)) ? '--' : ((+v).toFixed(2)) + (suffix||'');
+  };
+  setTxt('doseDpTat', dpTat, '');
+  setTxt('doseMpTat', mpTat, '');
+  setTxt('doseDpAuc', dpAuc, '');
+  setTxt('doseMpAuc', mpAuc, '');
+  var f1=document.getElementById('doseDpFull'); if(f1) f1.textContent=(+dpFull).toFixed(1);
+  var f2=document.getElementById('doseMpFull'); if(f2) f2.textContent=(+mpFull).toFixed(1);
 }
 
 // ==================== Drawing: Risk Band ====================
@@ -1368,6 +1504,7 @@ async function loadAnalysis(){
     var d = await r.json();
     if(d.error){ setAnEmpty('暂无数据'); return; }
     var g = d.grade || {};
+    anGradeCache = g;                 // 供双环剂量计按分层取 MP 满量程
     var badge = document.getElementById('anGrade');
     if(badge){
       badge.textContent = (g.level!=null ? (g.label||('G'+g.level)) : '--');
@@ -1391,6 +1528,7 @@ async function loadAnalysis(){
     renderSlopeTable('anDpSlope', d.slope&&d.slope.dp);
     renderSlopeTable('anMpSlope', d.slope&&d.slope.mp);
     renderComplianceCard(g);
+    drawOverviewGauges();             // 分层更新后重算双环满量程
   } catch(e){ console.error('loadAnalysis error:', e); }
 }
 
@@ -1596,10 +1734,7 @@ function updateOverviewUI(d){
   var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : null;
   var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : null;
   updateRmReadout(dpVal, mpVal);
-  var dpScale = computeScale(dpVal, TH.dp);
-  var mpScale = computeScale(mpVal, TH.mp);
-  drawGauge('dpGauge', dpVal, TH.dp, dpScale[0], dpScale[1], 'cmH₂O');
-  drawGauge('mpGauge', mpVal, TH.mp, mpScale[0], mpScale[1], 'J/min');
+  drawOverviewGauges();   // URS 07-1：瞬时数字卡 + 双环累积剂量计
   // Gauge messages and badges
   var dpBadge = document.getElementById('dpCardBadge');
   var dpMsg = document.getElementById('dpGaugeMsg');
