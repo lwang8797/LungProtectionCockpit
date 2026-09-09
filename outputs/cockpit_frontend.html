@@ -256,55 +256,102 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           </div>
         </div>
 
-        <!-- URS 07-1：累积剂量计双环表（外环 ΔP / 内环 MP）+ 右侧瞬时值紧凑区 -->
+        <!-- URS 07-1：累积剂量计双环表 + 右侧信息区（瞬时值 / 顺应性分层 / 累积暴露 / 24h 窗口） -->
         <div class="card" id="doseCard" style="margin-bottom:14px;">
           <h3>累积剂量计 · 双环暴露表
             <span class="hint" style="margin-left:auto;">URS 07-1｜外环 ΔP、内环 MP｜满环 = 本层 L4 危险阈值</span>
           </h3>
-          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
-            <div style="flex:1.2 1 300px;min-width:280px;display:flex;justify-content:center;">
-              <svg id="doseGauge" width="100%" height="270" viewBox="0 0 320 270" preserveAspectRatio="xMidYMid meet"></svg>
-            </div>
-            <div style="flex:1 1 280px;min-width:250px;font-size:12.5px;color:var(--t-2);line-height:1.85;">
-              <div style="margin-bottom:6px;"><b style="color:var(--t-1)">外环 ΔP 累积剂量</b><br>
-                TAT <b id="doseDpTat" style="color:var(--t-1)">--</b> h　/　满环 <span id="doseDpFull">6.0</span> h<br>
-                AUC <b id="doseDpAuc" style="color:var(--t-1)">--</b> cmH₂O·h</div>
-              <div><b style="color:var(--t-1)">内环 MP 累积剂量</b><br>
-                TAT <b id="doseMpTat" style="color:var(--t-1)">--</b> h　/　满环 <span id="doseMpFull">--</span> h<br>
-                AUC <b id="doseMpAuc" style="color:var(--t-1)">--</b> J·h/min</div>
-              <div style="margin-top:8px;color:var(--t-3);font-size:11.5px;" id="doseNote">
-                四色：绿 &lt;50% · 黄 50–75% · 橙 75–100% · 红 ≥100%（已达 L4 危险量）
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;">
+            <!-- 左：双环表 + 环图图例 -->
+            <div style="flex:1 1 320px;min-width:290px;">
+              <div style="display:flex;justify-content:center;">
+                <svg id="doseGauge" width="100%" height="270" viewBox="0 0 320 270" preserveAspectRatio="xMidYMid meet"></svg>
+              </div>
+              <div style="font-size:12px;color:var(--t-2);line-height:1.8;margin-top:2px;">
+                <div style="display:flex;justify-content:space-between;"><span>外环 ΔP TAT</span><b style="color:var(--t-1)"><span id="doseDpTat">--</span> h / 满环 <span id="doseDpFull">6.0</span> h</b></div>
+                <div style="display:flex;justify-content:space-between;"><span>内环 MP TAT</span><b style="color:var(--t-1)"><span id="doseMpTat">--</span> h / 满环 <span id="doseMpFull">--</span> h</b></div>
+                <div style="display:flex;justify-content:space-between;"><span>ΔP AUC</span><b style="color:var(--t-1)"><span id="doseDpAuc">--</span> cmH₂O·h</b></div>
+                <div style="display:flex;justify-content:space-between;"><span>MP AUC</span><b style="color:var(--t-1)"><span id="doseMpAuc">--</span> J·h/min</b></div>
+                <div id="doseNote" style="margin-top:4px;color:var(--t-3);font-size:11.5px;">四色：绿 &lt;50% · 黄 50–75% · 橙 75–100% · 红 ≥100%（已达 L4 危险量）</div>
               </div>
             </div>
-            <!-- 瞬时值紧凑区（原独立卡缩小并入此） -->
-            <div style="flex:0 0 auto;min-width:170px;display:flex;flex-direction:column;gap:10px;padding:4px 6px;">
-              <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;">
-                <div style="font-size:11.5px;color:var(--t-2);">瞬时 ΔP <span style="color:var(--t-3);">cmH₂O · 阈值15</span><span class="dyn-tag" id="dpLiveDyn" hidden>*Dyn*</span></div>
-                <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
-                  <span id="dpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--watch);">—</span>
-                  <span id="dpCardBadge" class="badge b-watch" style="font-size:10px;padding:2px 8px;">关 注</span>
-                </div>
-              </div>
-              <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;">
-                <div style="font-size:11.5px;color:var(--t-2);">瞬时 MP <span style="color:var(--t-3);">J/min · 阈值17</span><span class="dyn-tag" id="mpLiveDyn" hidden>*Dyn*</span></div>
-                <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
-                  <span id="mpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--warn);">—</span>
-                  <span id="mpCardBadge" class="badge b-warn" style="font-size:10px;padding:2px 8px;">偏 高</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div class="risk-grid" style="grid-template-columns:1fr;">
-          <!-- 综合卡：二维风险图即主视觉 -->
-          <div class="risk-card lv-2" onclick="gotoPage('rm')" style="cursor:pointer;">
-            <div class="head">
-              <div class="lab">能量–应力风险图<span class="unit">ΔP × MP</span></div>
-              <span class="badge b-warn">偏 高</span>
+            <!-- 右：瞬时值 / 顺应性分层 / 累积暴露 / 24h 窗口 -->
+            <div style="flex:2 1 560px;min-width:320px;display:flex;flex-direction:column;gap:10px;">
+              <!-- 瞬时值紧凑区 -->
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <div style="flex:1 1 150px;background:var(--bg-1);border:1px solid var(--line);border-radius:8px;padding:8px 12px;">
+                  <div style="font-size:11.5px;color:var(--t-2);">瞬时 ΔP <span style="color:var(--t-3)">cmH₂O · 阈值15</span><span class="dyn-tag" id="dpLiveDyn" hidden>*Dyn*</span></div>
+                  <div style="display:flex;align-items:baseline;gap:6px;">
+                    <span id="dpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--watch)">—</span>
+                    <span id="dpCardBadge" class="badge b-watch" style="font-size:10px;padding:2px 8px">关 注</span>
+                  </div>
+                </div>
+                <div style="flex:1 1 150px;background:var(--bg-1);border:1px solid var(--line);border-radius:8px;padding:8px 12px;">
+                  <div style="font-size:11.5px;color:var(--t-2);">瞬时 MP <span style="color:var(--t-3)">J/min · 阈值17</span><span class="dyn-tag" id="mpLiveDyn" hidden>*Dyn*</span></div>
+                  <div style="display:flex;align-items:baseline;gap:6px;">
+                    <span id="mpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--warn)">—</span>
+                    <span id="mpCardBadge" class="badge b-warn" style="font-size:10px;padding:2px 8px">偏 高</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- URS 07-3：顺应性分层 -->
+              <div id="cmpCard" class="win-block" style="margin-top:0;">
+                <div class="win-head" style="margin-bottom:6px;">
+                  <b>顺应性分层</b>
+                  <span class="badge" id="cmpGroup">--</span>
+                  <span class="hint" style="margin-left:auto;">URS 07-3｜分层决定 MP 安全上限</span>
+                </div>
+                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+                  <div class="pcell"><div class="k">C<sub>RS</sub> 呼吸系统顺应性</div><div class="v" id="cmpCrs">-- <small>mL/cmH₂O</small></div></div>
+                  <div class="pcell"><div class="k">分层分界值</div><div class="v" id="cmpThr">32.7 <small>mL/cmH₂O</small></div></div>
+                  <div class="pcell"><div class="k">本层 MP 安全上限</div><div class="v" id="cmpMpLimit">-- <small>J/min</small></div></div>
+                  <div class="pcell"><div class="k">本层高暴露 L3 / L4</div><div class="v" id="cmpTatLimit">-- <small>h</small></div></div>
+                </div>
+              </div>
+
+              <!-- 累积暴露（通气全程） -->
+              <div class="win-block" style="margin-top:0;">
+                <div class="win-head" style="margin-bottom:6px;">
+                  <b>累积暴露（通气全程）</b>
+                  <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
+                </div>
+                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+                  <div class="pcell"><div class="k">ΔP 高暴露时长 <span class="dyn-tag" id="cumDpDyn" title="平台压不可信，已降级为动态口径 ΔP=Ppeak−PEEP" hidden>*Dyn*</span></div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
+                  <div class="pcell"><div class="k">MP 高暴露时长 <span class="dyn-tag" id="cumMpDyn" title="平台压不可信，已降级为动态公式 0.098·RR·Vt·0.5·(Ppeak+PEEP)" hidden>*Dyn*</span></div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
+                  <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·h</small></div></div>
+                  <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>J·h/min</small></div></div>
+                </div>
+                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-top:8px;">
+                  <div class="pcell"><div class="k">高暴露占比 PTA</div><div class="v" id="cumPta">-- <small>%</small></div></div>
+                  <div class="pcell"><div class="k">有效通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
+                  <div class="pcell"><div class="k">数据断流</div><div class="v" id="cumGap">-- <small>min</small></div></div>
+                  <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
+                </div>
+              </div>
+
+              <!-- 24h 滚动窗口口径：URS G0~G3 判据均为 "x h/24h" -->
+              <div class="win-block" style="margin-top:0;">
+                <div class="win-head" style="margin-bottom:6px;">
+                  <b>24h 滚动窗口</b>
+                  <span id="winDcr" class="dcr-chip">DCR --</span>
+                  <span class="hint" id="winHint"></span>
+                </div>
+                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+                  <div class="pcell"><div class="k">ΔP TAT /24h</div><div class="v" id="winDpTat">-- <small>h</small></div></div>
+                  <div class="pcell"><div class="k">MP TAT(≥17) /24h</div><div class="v" id="winMpTat">-- <small>h</small></div></div>
+                  <div class="pcell"><div class="k">ΔP AUC /24h</div><div class="v" id="winDpAuc">-- <small>cmH₂O·h</small></div></div>
+                  <div class="pcell"><div class="k">MP AUC(≥17) /24h</div><div class="v" id="winMpAuc">-- <small>J·h/min</small></div></div>
+                </div>
+              </div>
+
+              <div class="note" style="margin:0;">
+                累积维度风险：<b id="cumRiskText">L1 正常</b>　·　顺应性分层：<b id="cumStratum">--</b>（CRS=<span id="cumComp">--</span> mL/cmH₂O，分界 32.7）　·　评级 = max(瞬时单值维度, 累积暴露维度)
+                <span id="cmpNote" style="display:block;margin-top:4px;">分层口径：C<sub>RS</sub> 按有效通气时长加权滚动，与 24h 窗口同口径；分层仅影响 MP 轨道阈值，ΔP 轨道恒用 15 cmH₂O。</span>
+                <span style="color:var(--t-3)">有效通气时长按「相邻有效上报批次的时间跨度」累计，间隔 ≤4h 前向填充计入、&gt;4h 记为数据断流并暂停积分。</span>
+              </div>
             </div>
-            <div class="gauge-wrap" style="padding:2px 4px 0;"><svg id="rmMini" width="100%" height="170"></svg></div>
-            <div class="gauge-msg" style="color:var(--warn);">左上象限 · MP 主导 ›</div>
           </div>
         </div>
 
@@ -312,45 +359,6 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         <div class="live-fresh" id="liveFresh" style="margin:-4px 0 14px;font-size:12.5px;color:var(--t-3);display:flex;gap:12px;align-items:center;">
           <span id="liveDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--t-3);box-shadow:0 0 0 3px rgba(127,127,127,.15);"></span>
           <span id="liveText">实时链路初始化中…</span>
-        </div>
-
-        <!-- 累积暴露卡片：双维度之「累积维度」 -->
-        <div class="card" style="margin-bottom:14px;">
-          <h3>累积暴露（通气全程）
-            <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
-          </h3>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
-            <div class="pcell"><div class="k">ΔP 高暴露时长 <span class="dyn-tag" id="cumDpDyn" title="平台压不可信，已降级为动态口径 ΔP=Ppeak−PEEP" hidden>*Dyn*</span></div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
-            <div class="pcell"><div class="k">MP 高暴露时长 <span class="dyn-tag" id="cumMpDyn" title="平台压不可信，已降级为动态公式 0.098·RR·Vt·0.5·(Ppeak+PEEP)" hidden>*Dyn*</span></div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
-            <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·h</small></div></div>
-            <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>J·h/min</small></div></div>
-          </div>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px;">
-            <div class="pcell"><div class="k">高暴露占比 PTA</div><div class="v" id="cumPta">-- <small>%</small></div></div>
-            <div class="pcell"><div class="k">有效通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
-            <div class="pcell"><div class="k">数据断流</div><div class="v" id="cumGap">-- <small>min</small></div></div>
-            <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
-          </div>
-          <!-- 24h 滚动窗口口径：URS G0~G3 判据均为 "x h/24h" -->
-          <div class="win-block">
-            <div class="win-head">
-              <b>24h 滚动窗口</b>
-              <span id="winDcr" class="dcr-chip">DCR --</span>
-              <span class="hint" id="winHint"></span>
-            </div>
-            <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
-              <div class="pcell"><div class="k">ΔP TAT /24h</div><div class="v" id="winDpTat">-- <small>h</small></div></div>
-              <div class="pcell"><div class="k">MP TAT(≥17) /24h</div><div class="v" id="winMpTat">-- <small>h</small></div></div>
-              <div class="pcell"><div class="k">ΔP AUC /24h</div><div class="v" id="winDpAuc">-- <small>cmH₂O·h</small></div></div>
-              <div class="pcell"><div class="k">MP AUC(≥17) /24h</div><div class="v" id="winMpAuc">-- <small>J·h/min</small></div></div>
-            </div>
-          </div>
-          <div class="note">
-            累积维度风险：<b id="cumRiskText">L1 正常</b>　·
-            顺应性分层：<b id="cumStratum">--</b>（CRS=<span id="cumComp">--</span> mL/cmH₂O，分界 32.7）　·
-            评级 = max(瞬时单值维度, 累积暴露维度)<br>
-            <span style="color:var(--t-3)">有效通气时长按「相邻有效上报批次的时间跨度」累计，间隔 ≤4h 前向填充计入、&gt;4h 记为数据断流并暂停积分。</span>
-          </div>
         </div>
 
         <div class="card band-card">
@@ -373,41 +381,6 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
             <div class="pcell"><div class="k">FiO₂</div><div class="v"><span id="snapFio2">--</span><small>%</small></div></div>
           </div>
           <div class="note">⚠ <b>气道版本局限</b>：气道 ΔP / MP 包含胸壁因素，肥胖、腹高压、胸壁僵硬患者可能<b>高估或低估</b>真实肺应力与能量负荷。</div>
-        </div>
-
-        <!-- P1：URS 趋势分析（FR-05 斜率 + CUSUM + FR-06 G0-G3） -->
-        <div class="card" id="anCard">
-          <h3>URS 趋势分析 · 变化点与分级防抖
-            <span class="badge gbadge" id="anGrade" style="margin-left:10px;">--</span>
-            <span class="hint" style="margin-left:auto;">FR-05 滑动斜率 + CUSUM｜FR-06 G0-G3 持续防抖（作用于连续 1-min 序列）</span>
-          </h3>
-          <div class="note" style="margin-bottom:8px;" id="anEmpty">斜率各档需窗内 ≥3 有效点；当前稀疏数据会显示「数据不足」，接入连续数据后自动生效。</div>
-          <div class="an-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;">
-            <div>
-              <div class="k" style="color:var(--t-3);margin-bottom:4px;">ΔP 驱动压</div>
-              <table class="tbl" id="anDpSlope"><tbody><tr><td colspan="3" style="color:var(--t-3)">--</td></tr></tbody></table>
-            </div>
-            <div>
-              <div class="k" style="color:var(--t-3);margin-bottom:4px;">MP 机械功率</div>
-              <table class="tbl" id="anMpSlope"><tbody><tr><td colspan="3" style="color:var(--t-3)">--</td></tr></tbody></table>
-            </div>
-          </div>
-          <div class="an-meta" id="anMeta" style="margin-top:8px;font-size:12px;color:var(--t-2);line-height:1.7;"></div>
-        </div>
-
-        <!-- URS 07-3：顺应性分层标签卡 -->
-        <div class="card" id="cmpCard" style="border-left:4px solid var(--t-3);">
-          <h3>顺应性分层
-            <span class="badge" id="cmpGroup" style="margin-left:10px;">--</span>
-            <span class="hint" style="margin-left:auto;">URS 07-3｜分层决定 MP 安全上限</span>
-          </h3>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;">
-            <div class="pcell"><div class="k">C<sub>RS</sub> 呼吸系统顺应性</div><div class="v" id="cmpCrs">-- <small>mL/cmH₂O</small></div></div>
-            <div class="pcell"><div class="k">分层分界值</div><div class="v" id="cmpThr">32.7 <small>mL/cmH₂O</small></div></div>
-            <div class="pcell"><div class="k">本层 MP 安全上限</div><div class="v" id="cmpMpLimit">-- <small>J/min</small></div></div>
-            <div class="pcell"><div class="k">本层高暴露 L3 / L4</div><div class="v" id="cmpTatLimit">-- <small>h</small></div></div>
-          </div>
-          <div class="note" id="cmpNote" style="margin-bottom:0;">分层口径：C<sub>RS</sub> 按有效通气时长加权滚动，与 24h 窗口同口径；分层仅影响 MP 轨道阈值，ΔP 轨道恒用 15 cmH₂O。</div>
         </div>
 
         <!-- URS 07-4：班次导出与交接班摘要 -->
@@ -1396,7 +1369,6 @@ function renderMp(win){
 function renderAll(){
   drawOverviewGauges();
   drawRiskBand();
-  drawRiskMap('rmMini',null,420,190,false);
   drawRiskMap('rmBig','rmTip',860,520,true);
   renderDp(curWin.dp); renderMp(curWin.mp);
   renderAlerts();
@@ -1409,7 +1381,7 @@ function gotoPage(pg){
   if(pg==='mp') renderMp(curWin.mp);
   if(pg==='rm') drawRiskMap('rmBig','rmTip',860,520,true);
   if(pg==='ov'){
-    drawOverviewGauges(); drawRiskBand(); drawRiskMap('rmMini',null,420,190,false);
+    drawOverviewGauges(); drawRiskBand();
   }
 }
 
@@ -1590,8 +1562,8 @@ async function fetchOverview(){
 
 // P1：加载 /api/analysis（URS FR-05 斜率+CUSUM、FR-06 G0-G3）到总览卡
 async function loadAnalysis(){
-  var card = document.getElementById('anCard');
-  if(!card) return;
+  // 注意：URS 趋势分析卡已从总览移除，但本函数仍必须执行——
+  // 它负责 grade 缓存（双环满量程按分层取值）、顺应性分层渲染与 CUSUM 旗标数据源。
   try {
     var r = await fetch(API+'/api/analysis?hours=24');
     var d = await r.json();
