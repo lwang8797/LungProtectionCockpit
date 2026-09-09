@@ -18,7 +18,7 @@ COLL_WORK_MODE = "work_mode"       # 通气模式集合（仅在变化时写入�
 #   跨度 2026-08-27 07:44 ~ 08-28 01:46 UTC）。历史设备 ATVIPVTEST1 的数据已被平台侧清理，
 #   count = 0（history-data 库 measure_param_all 亦只有 1787816609 的 480 条）。
 #   两台设备 paramId 方案一致，若 ATVIPVTEST1 数据回填，改这里即可切换。
-DEVICE_ID = os.environ.get("COCKPIT_DEVICE_ID", "1788932533")
+DEVICE_ID = os.environ.get("COCKPIT_DEVICE_ID", "1788936676")
 KNOWN_DEVICES = ["1787816609", "ATVIPVTEST1"]
 
 # ── 参数 paramId -> 标准化名 ──
