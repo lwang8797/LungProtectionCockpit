@@ -52,6 +52,7 @@ from .calculator import (
     build_points, weighted_mean_series,
     build_risk_map_points, classify_risk, classify_instant_risk,
 )
+from . import analyzer as ANZ
 
 logger = logging.getLogger("lung_cockpit.api")
 
@@ -492,6 +493,109 @@ def _window_cumulative(db, device_id: str, start_ts: int, latest_ts: int,
     }
 
 
+def _minute_docs_to_series(docs: list) -> list:
+    """把 metrics_1min 文档转成 analyzer 用的连续分钟序列（只保留有 dp/mp 的分钟）。"""
+    rows = []
+    for d in docs:
+        dp = _as_float(d.get("dp_mean"))
+        mp = _as_float(d.get("mp_mean"))
+        if math.isnan(dp) or math.isnan(mp):
+            continue
+        vt = _as_float(d.get("vt_mean"))
+        crs = (vt / dp) if (not math.isnan(vt) and dp > 0) else float("nan")
+        rows.append({"ts": d["minute"], "dp": dp, "mp": mp, "crs": crs})
+    rows.sort(key=lambda r: r["ts"])
+    return rows
+
+
+def _compute_analysis(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW_HOURS,
+                      series: Optional[list] = None) -> dict:
+    """运行 URS FR-05（斜率/CUSUM）+ FR-06（G0-G3 防抖）分析。
+
+    若给定 series（analyzer 行：ts/dp/mp/crs），直接用它（测试注入用）；
+    否则从 metrics_1min 读窗口数据构造。
+    """
+    db = get_database()
+    latest_ts = get_latest_minute_ts(db, device_id)
+    if series is None:
+        if latest_ts == 0:
+            _, latest_ts = get_time_range(db, device_id)
+        if latest_ts == 0:
+            return {"error": "no_data", "device": device_id}
+        start_ts = latest_ts - int(hours * 3600 * 1000)
+        docs = list(db[COLL_1MIN].find(
+            {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts}},
+            {"_id": 0, "minute": 1, "dp_mean": 1, "mp_mean": 1, "vt_mean": 1,
+             "is_ventilating": 1},
+        ).sort("minute", 1))
+        series = _minute_docs_to_series(docs)
+
+    if not series:
+        return {"error": "no_data", "device": device_id, "hours": hours}
+
+    # ── 24h TAT（用于 G0-G3 判据）——用与 _window_cumulative 相同口径 ──
+    # 直接把 series 还原成 compute_cumulative 输入，取 dp_tat_hours / mp_tat_hours
+    cum_rows = [{"ts": r["ts"], "dP": r["dp"], "MP": r["mp"],
+                 "CRS": r.get("crs", float("nan"))} for r in series]
+    cum = compute_cumulative(cum_rows, MAX_FORWARD_FILL_MIN)
+    dp_tat_24h = cum["dp_tat_hours"]
+    mp_tat_24h = cum["mp_tat_hours"].get("mp17", 0.0)
+
+    # 顺应性（按有效通气时长加权，与 overview 一致）
+    crs_pts = build_points(cum_rows, "CRS")
+    comp = weighted_mean_series(crs_pts, MAX_FORWARD_FILL_MIN)
+    stratum = "high" if (not math.isnan(comp)
+                         and comp > COMPLIANCE_STRATUM_THRESHOLD) else "low"
+
+    # ── FR-05.1 斜率 ──
+    slope_dp = ANZ.sliding_slopes(series, "dp")
+    slope_mp = ANZ.sliding_slopes(series, "mp")
+
+    # ── FR-05.2 CUSUM ──
+    cusum_dp = ANZ.cusum_track(series, "dp")
+    cusum_mp = ANZ.cusum_track(series, "mp")
+
+    # ── FR-06 G0-G3 防抖引擎（真·连续分钟口径） ──
+    eng = ANZ.DebounceGradeEngine(stratum=stratum)
+    # 最近连续段（与最新点连续），喂给引擎求当前级；斜率方向用 6h 窗
+    slope6 = slope_dp.get(6.0, {})
+    slope6v = slope6.get("beta")
+    dp_slope_up = (slope6v is not None and slope6v > 0)
+    events = []
+    cur_grade = ANZ.G0
+    for r in series:
+        g, ev = eng.feed(r["ts"], r["dp"], r["mp"],
+                         dp_tat_24h=dp_tat_24h, mp_tat_24h=mp_tat_24h,
+                         dp_slope_up=dp_slope_up)
+        if ev:
+            events.append({"ts": r["ts"], "event": ev,
+                           "grade": g,
+                           "grade_label": ANZ.GRADE_LABELS[g],
+                           "iso": datetime.fromtimestamp(
+                               r["ts"] / 1000, tz=timezone.utc).isoformat()})
+        cur_grade = g
+
+    return {
+        "device": device_id,
+        "hours": hours,
+        "source": "metrics_1min" if series is None else "injected",
+        "grade": {
+            "level": cur_grade,
+            "label": ANZ.GRADE_LABELS[cur_grade],
+            "color": ANZ.GRADE_COLOR[cur_grade],
+            "stratum": stratum,
+            "compliance_mean": round(comp, 1) if not math.isnan(comp) else None,
+            "dp_tat_24h": round(dp_tat_24h, 2),
+            "mp_tat_24h": round(mp_tat_24h, 2),
+            "dp_sustain_min": eng.dp_sustain,
+            "mp_sustain_min": eng.mp_sustain,
+            "events": events[-12:],  # 最近 12 条升降级事件
+        },
+        "slope": {"dp": slope_dp, "mp": slope_mp},
+        "cusum": {"dp": cusum_dp, "mp": cusum_mp},
+    }
+
+
 # ════════════════════ 核心逻辑（REST + WS 共用） ════════════════════
 
 def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW_HOURS) -> dict:
@@ -795,6 +899,24 @@ async def get_risk_map(
         "thresholds": {"dp": DP_THRESHOLD, "mp": MP_THRESHOLD},
         "series": pts,
     }
+
+
+@app.get("/api/analysis")
+async def get_analysis(
+    deviceId: str = Query(default=DEVICE_ID),
+    hours: float = Query(default=24, ge=0.1, le=168),
+):
+    """URS FR-05/FR-06 分析：滑动斜率 + CUSUM 变化点 + G0-G3 防抖总评。
+
+    URS 引擎作用于连续 1-min 通气序列；当前库内真实数据稀疏时 slope 各档
+    返回 insufficient、CUSUM 无变化点、grade=G0，属预期（待真实设备连续数据验证）。
+    """
+    try:
+        data = _compute_analysis(deviceId, hours)
+    except Exception as e:
+        logger.exception("analysis failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    return _clean_nan(data)
 
 
 def _serialize_alert(doc: dict) -> dict:
