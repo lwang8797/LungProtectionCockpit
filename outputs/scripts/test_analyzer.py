@@ -144,6 +144,24 @@ def main():
         max_g = max(max_g, g)
     check("10min 严重超标最高只到 G1", max_g <= A.G1, f"max_grade={max_g}")
 
+    print("======== 8. 未超标维度不得触发回落解除（防 G1↔G2 抖动） ========")
+    # 缺陷背景：MP 长期低于阈值时 below_mp 持续累加，旧逻辑允许 MP 维度"解除"
+    # 由 ΔP 撑起的等级，下一分钟又升回 → 稳定输入下逐分钟抖动。
+    # 本用例 ΔP≡16(持续超标,斜率为正)、MP≡12(从未超标)，等级必须稳定不抖。
+    eng5 = A.DebounceGradeEngine(stratum="low")
+    grades, flips = [], 0
+    prev = None
+    for i in range(120):
+        g, ev = eng5.feed(base + i * 60000, 16.0, 12.0, dp_slope_up=True)
+        grades.append(g)
+        if prev is not None and g != prev:
+            flips += 1
+        prev = g
+    tail = grades[-30:]
+    check("越限持续期无任何等级翻转", flips <= 1, f"flips={flips} (仅允许升级一次)")
+    check("稳定越限收敛到 G2", tail[-1] == A.G2, f"final grade={tail[-1]}")
+    check("尾部 30min 等级恒定", len(set(tail)) == 1, f"tail grades={sorted(set(tail))}")
+
     print()
     print(f"==== 结果：{PASS} passed, {FAIL} failed ====")
     sys.exit(1 if FAIL else 0)

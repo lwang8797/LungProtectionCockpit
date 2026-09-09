@@ -327,11 +327,19 @@ class DebounceGradeEngine:
             if (mp is not None and mp >= g3_thr) else 0
 
         self.tat_grade = _tat_grade(dp_tat_24h, mp_tat_24h, self.stratum)
-        # 回落解除：瞬时维度此前 ≥G2 且值已回落维持 ≥10min → 临时压低瞬时级
+        # 回落解除：只有当「撑起当前瞬时级的超标维度」全部回落到阈值以下、
+        # 且各自维持 ≥ RELEASE_MIN 分钟后，才压制瞬时维度。
+        # 修正历史缺陷：原实现把「从未超标」的维度也计入解除条件——例如 MP 长年 <17
+        # 时 below_mp 持续累加，会把由 ΔP 撑起的等级拉下来，下一分钟又升回去，
+        # 造成逐分钟 G1↔G2 抖动。必须先判断维度是否仍活跃。
+        dp_active = (dp is not None and dp >= DP_THR)
+        mp_active = (mp is not None and mp >= MP_THR)
         sustain_suppressed = False
-        if self.sustain_grade >= G2:
-            if ((dp is not None and dp < DP_THR and self.below_dp >= RELEASE_MIN) or
-                    (mp is not None and mp < MP_THR and self.below_mp >= RELEASE_MIN)):
+        if self.sustain_grade >= G2 and not dp_active and not mp_active:
+            # 缺失维度（None）不参与解除判定，避免因参数不全永远无法降级
+            dp_ok = (dp is None) or (self.below_dp >= RELEASE_MIN)
+            mp_ok = (mp is None) or (self.below_mp >= RELEASE_MIN)
+            if dp_ok and mp_ok:
                 sustain_suppressed = True
         self.sustain_grade = _sustain_grade(
             dp, mp, self.stratum, self.dp_sustain, self.dp_g3_sustain, dp_slope_up,
