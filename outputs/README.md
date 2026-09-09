@@ -93,3 +93,27 @@ node scripts/test_alert_ack_frontend.js --spawn
   `JSONResponse(allow_nan=False)` 直接 500。新增聚合字段务必接入清洗。
 - 预警去重窗口 5 分钟（按 `risk_level` + `category`），确认只针对单条事件，
   不会阻止后续新的风险升级再次产生预警。
+
+## URS 新需求实施进度（2026-09-09 起）
+
+**详细清单与连库实测结论**：`outputs/docs/URS新需求覆盖对照清单.md`。
+
+| 模块 | 状态 | 关键变化 |
+| :--- | :--- | :--- |
+| FR-02 ΔP/MP 双轨口径 | ✅ | `Vt=Vti`（回退 Vte）、`Pplat` 可信性校验（需 PEEP<Pplat<Ppeak 否则降级 *Dyn*），`dp_source`/`mp_source` 实时+全程同源 |
+| FR-04 剂量计核心 | ✅ | 真实时间积分（不再跳过大区间）、≤4h 前向填充 / >4h 记断流、`TAT`/`AUC`/`PTA`/`通气时长`/`断流时长` 全量补齐 |
+| FR-04 24h 滚动窗口 | ✅ | `cumulative.window.{dp_tat_hours, mp_tat_hours, dcr, dcr_raw, dcr_low, compliance_*}`；DCR<85% 自动提示置信度降级 |
+| FR-04 数据完整率 DCR | ✅ | `dcr` = 有效通气时长 / 窗口时长（含填充）；`dcr_raw` = 原始上报密度 |
+| CRS 顺应性分层 | ✅ | 全程与窗口**同口径**（按有效通气时长加权滚动），避免前后分层结论不一致 |
+| *Dyn* 降级标记 | ✅ | 前端实时仪表 + 累积卡均显示；计算引擎 `dp_source/mp_source` 实时+全程同步 |
+
+**未实施**（待 P1/P2 批次确认后开发）：FR-05 斜率/CUSUM/GBTM 变化点检测、FR-06
+分级报警防抖与自动解除、FR-07 72h/交接班/俯卧位摘要、免责声明 + 脱敏、CSV 导出。
+
+**约束**：
+
+- 用户指定「波形数据可靠但优先走固定公式」，当前仅用 Gattinoni + 动态式，未做波形
+  通道积分；后续如需 ∫Paw·dV 精确算法可启用 `wave_data`（25Hz, 6 通道）。
+- 仅针对单设备，无需考虑 32 床并发。旧设备 `ATVIPVTEST1` 在 `history-data` 库的
+  `measure_param` 已**清空**（只剩 `1787816609` 的 480 条），不再回退。
+- 数据极度稀疏：当前设备最长 14h 上报间隔 → DCR=11~33%，提示置信度降级是常态。

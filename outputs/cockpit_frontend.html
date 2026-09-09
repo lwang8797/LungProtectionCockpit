@@ -109,6 +109,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
 .pcell .v{font-size:17px;font-weight:700;color:var(--t-1);}
 .pcell .v small{font-size:10.5px;color:var(--t-3);font-weight:normal;}
 .note{font-size:11.5px;color:var(--t-3);line-height:1.65;background:var(--bg-1);border-radius:6px;padding:8px 12px;border:1px dashed var(--line2);}
+/* *Dyn* 降级标记：平台压不可信、已改用 Ppeak 动态口径（URS FR-02） */
+.dyn-tag{display:inline-block;font-size:9.5px;font-weight:700;font-style:italic;color:var(--watch);
+  background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.45);border-radius:3px;
+  padding:0 3px;margin-left:2px;vertical-align:middle;letter-spacing:.3px;}
+.dyn-tag[hidden]{display:none;}
+/* 24h 滚动窗口块 */
+.win-block{margin-top:10px;background:var(--bg-1);border:1px solid var(--line);border-radius:6px;padding:8px 12px 10px;}
+.win-head{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t-2);margin-bottom:8px;}
+.win-head b{color:var(--t-1);font-size:12.5px;}
+.dcr-chip{font-size:10.5px;padding:1px 7px;border-radius:9px;background:rgba(34,197,94,.14);
+  color:var(--ok);border:1px solid rgba(34,197,94,.35);font-weight:700;}
+.dcr-chip.low{background:rgba(239,68,68,.14);color:var(--dan);border-color:rgba(239,68,68,.4);}
+.win-head .hint{margin-left:auto;font-size:11px;}
 .note b{color:var(--t-1);}
 .hintlink{color:var(--pri);cursor:pointer;font-weight:bold;}
 
@@ -243,7 +256,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <!-- ΔP 仪表盘卡：一图 + 一数 + 一句话 -->
           <div class="risk-card lv-1">
             <div class="head">
-              <div class="lab">气道驱动压 ΔP<span class="unit">Pplat − PEEP</span></div>
+              <div class="lab">气道驱动压 ΔP<span class="unit" id="dpFormula">Pplat − PEEP</span><span class="dyn-tag" id="dpLiveDyn" hidden>*Dyn*</span></div>
               <span class="badge b-watch" id="dpCardBadge">关 注</span>
             </div>
             <div class="gauge-wrap"><svg id="dpGauge" width="100%" height="170"></svg></div>
@@ -253,7 +266,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <!-- MP 仪表盘卡 -->
           <div class="risk-card lv-2">
             <div class="head">
-              <div class="lab">气道机械功率 MP<span class="unit">Gattinoni 公式</span></div>
+              <div class="lab">气道机械功率 MP<span class="unit" id="mpFormula">Gattinoni 公式</span><span class="dyn-tag" id="mpLiveDyn" hidden>*Dyn*</span></div>
               <span class="badge b-warn" id="mpCardBadge">偏 高</span>
             </div>
             <div class="gauge-wrap"><svg id="mpGauge" width="100%" height="170"></svg></div>
@@ -283,15 +296,36 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
             <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
           </h3>
           <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
-            <div class="pcell"><div class="k">ΔP 高暴露时长</div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
-            <div class="pcell"><div class="k">MP 高暴露时长</div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
+            <div class="pcell"><div class="k">ΔP 高暴露时长 <span class="dyn-tag" id="cumDpDyn" title="平台压不可信，已降级为动态口径 ΔP=Ppeak−PEEP" hidden>*Dyn*</span></div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
+            <div class="pcell"><div class="k">MP 高暴露时长 <span class="dyn-tag" id="cumMpDyn" title="平台压不可信，已降级为动态公式 0.098·RR·Vt·0.5·(Ppeak+PEEP)" hidden>*Dyn*</span></div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
+            <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·h</small></div></div>
+            <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>J·h/min</small></div></div>
+          </div>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px;">
+            <div class="pcell"><div class="k">高暴露占比 PTA</div><div class="v" id="cumPta">-- <small>%</small></div></div>
+            <div class="pcell"><div class="k">有效通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
+            <div class="pcell"><div class="k">数据断流</div><div class="v" id="cumGap">-- <small>min</small></div></div>
             <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
-            <div class="pcell"><div class="k">通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
+          </div>
+          <!-- 24h 滚动窗口口径：URS G0~G3 判据均为 "x h/24h" -->
+          <div class="win-block">
+            <div class="win-head">
+              <b>24h 滚动窗口</b>
+              <span id="winDcr" class="dcr-chip">DCR --</span>
+              <span class="hint" id="winHint"></span>
+            </div>
+            <div class="param-grid" style="grid-template-columns:repeat(4,1fr);">
+              <div class="pcell"><div class="k">ΔP TAT /24h</div><div class="v" id="winDpTat">-- <small>h</small></div></div>
+              <div class="pcell"><div class="k">MP TAT(≥17) /24h</div><div class="v" id="winMpTat">-- <small>h</small></div></div>
+              <div class="pcell"><div class="k">ΔP AUC /24h</div><div class="v" id="winDpAuc">-- <small>cmH₂O·h</small></div></div>
+              <div class="pcell"><div class="k">MP AUC(≥17) /24h</div><div class="v" id="winMpAuc">-- <small>J·h/min</small></div></div>
+            </div>
           </div>
           <div class="note">
             累积维度风险：<b id="cumRiskText">L1 正常</b>　·
             顺应性分层：<b id="cumStratum">--</b>（CRS=<span id="cumComp">--</span> mL/cmH₂O，分界 32.7）　·
-            评级 = max(瞬时单值维度, 累积暴露维度)
+            评级 = max(瞬时单值维度, 累积暴露维度)<br>
+            <span style="color:var(--t-3)">有效通气时长按「相邻有效上报批次的时间跨度」累计，间隔 ≤4h 前向填充计入、&gt;4h 记为数据断流并暂停积分。</span>
           </div>
         </div>
 
@@ -616,6 +650,62 @@ function setCumCell(id, val, unit, l3, l4, dec){
   if(val!=null){ if(val>=l4) col='var(--dan)'; else if(val>=l3) col='var(--warn)'; else col='var(--ok)'; }
   el.style.color = col;
 }
+// 无阈值配色的普通读数格
+function setPlainCell(id, val, unit, dec){
+  var el=document.getElementById(id); if(!el) return;
+  el.innerHTML = (val==null||isNaN(val) ? '--' : (+val).toFixed(dec||0)) + ' <small>'+unit+'</small>';
+  el.style.color = 'var(--t-1)';
+}
+// *Dyn* 降级标记显示/隐藏
+function toggleDyn(id, show){
+  var el=document.getElementById(id); if(!el) return;
+  el.hidden = !show;
+  el.title = show
+    ? '平台压未通过可信性校验（要求 PEEP < Pplat < Ppeak），已降级为动态口径，数值含阻力压叠加'
+    : '';
+}
+// 实时读数的 *Dyn* 标记：优先用 live（最新原始批次），回退窗口累计口径
+function applyLiveDyn(d){
+  var dpSrc = (d.live && d.live.dp_source) || (d.dp && d.dp.source) || (d.cumulative && d.cumulative.dp_source) || 'none';
+  var mpSrc = (d.live && d.live.mp_source) || (d.mp && d.mp.source) || (d.cumulative && d.cumulative.mp_source) || 'none';
+  toggleDyn('dpLiveDyn', dpSrc==='dynamic');
+  toggleDyn('mpLiveDyn', mpSrc==='dynamic');
+  var df=document.getElementById('dpFormula');
+  if(df) df.textContent = dpSrc==='dynamic' ? 'Ppeak − PEEP' : (dpSrc==='static' ? 'Pplat − PEEP' : '—');
+  var mf=document.getElementById('mpFormula');
+  if(mf) mf.textContent = mpSrc==='dynamic' ? '动态式 0.5·(Ppeak+PEEP)' : (mpSrc==='static' ? 'Gattinoni 公式' : '—');
+}
+// 24h 滚动窗口块：DCR 低于 85% 时提示置信度降级（URS FR-01）
+function fillWindowBlock(w){
+  var set=function(id,val,unit,dec){
+    var el=document.getElementById(id); if(!el) return;
+    el.innerHTML=(val==null||isNaN(val)?'--':(+val).toFixed(dec||0))+' <small>'+unit+'</small>';
+  };
+  if(!w){
+    ['winDpTat','winMpTat','winDpAuc','winMpAuc'].forEach(function(id){ set(id,null,'',0); });
+    var c=document.getElementById('winDcr'); if(c){ c.textContent='DCR --'; c.className='dcr-chip'; }
+    var h=document.getElementById('winHint'); if(h) h.textContent='';
+    return;
+  }
+  set('winDpTat', w.dp_tat_hours, 'h', 2);
+  set('winMpTat', w.mp_tat_hours ? w.mp_tat_hours.mp17 : null, 'h', 2);
+  set('winDpAuc', w.dp_auc_h, 'cmH₂O·h', 2);
+  set('winMpAuc', w.mp_auc_h ? w.mp_auc_h.mp17 : null, 'J·h/min', 2);
+  var c=document.getElementById('winDcr');
+  if(c){
+    c.textContent = 'DCR ' + (w.dcr==null ? '--' : w.dcr.toFixed(1)+'%');
+    c.className = 'dcr-chip' + (w.dcr_low ? ' low' : '');
+    c.title = '数据完整率 = 有效通气时长（含≤4h前向填充）/ 窗口时长；原始上报密度 '
+            + (w.dcr_raw==null?'--':w.dcr_raw.toFixed(1)+'%');
+  }
+  var h=document.getElementById('winHint');
+  if(h){
+    h.textContent = w.dcr_low
+      ? ('⚠ 完整率 ' + w.dcr.toFixed(1) + '% < ' + (w.dcr_threshold||85) + '%，剂量置信度降级')
+      : '';
+    h.style.color = w.dcr_low ? 'var(--watch)' : 'var(--t-3)';
+  }
+}
 function fillCumCard(cum){
   if(!cum) return;
   var stratum = cum.compliance_stratum || 'high';
@@ -634,6 +724,24 @@ function fillCumCard(cum){
   if(ek < 1){ setCumCell('cumEnergy', ek*1000, 'J', null, null, 1); }
   else { setCumCell('cumEnergy', ek, 'kJ', null, null, 2); }
   document.getElementById('cumVentDur').innerHTML = fmtDur(cum.vent_duration_min||0);
+
+  // ── 新增：AUC / PTA / 断流 / *Dyn* 降级标记（URS FR-02、FR-04）──
+  setPlainCell('cumDpAuc', cum.dp_auc_above, 'cmH₂O·h', 2);
+  setPlainCell('cumMpAuc', cum.mp_auc_above_17, 'J·h/min', 2);
+  setPlainCell('cumPta', cum.dp_pta, '%', 1);
+  var gapEl = document.getElementById('cumGap');
+  if(gapEl){
+    var gm = cum.gap_minutes || 0;
+    gapEl.innerHTML = gm.toFixed(0) + ' <small>min</small>' + (cum.n_gaps ? ' <small>/ '+cum.n_gaps+'段</small>' : '');
+    gapEl.style.color = gm > 0 ? 'var(--watch)' : 'var(--ok)';
+  }
+  // *Dyn*：平台压未通过可信性校验（要求 PEEP < Pplat < Ppeak），已降级为动态口径
+  toggleDyn('cumDpDyn', cum.dp_source==='dynamic');
+  toggleDyn('cumMpDyn', cum.mp_source==='dynamic');
+
+  // ── 24h 滚动窗口（G0~G3 判据口径 "x h/24h"）──
+  fillWindowBlock(cum.window);
+
   var se = document.getElementById('cumStratum');
   if(se) se.textContent = (stratum==='low'?'低顺应性':'高顺应性') + (mpTh?('（MP≥'+mpTh+'）'):'');
   var ce = document.getElementById('cumComp');
@@ -1320,6 +1428,8 @@ function updateOverviewUI(d){
   if(ventEl && d.cumulative) ventEl.textContent = fmtDur(d.cumulative.vent_duration_min || 0);
   // Cumulative exposure card
   if(d.cumulative) fillCumCard(d.cumulative);
+  // *Dyn* 实时降级标记：跟随当前读数的计算口径（static / dynamic）
+  applyLiveDyn(d);
   // Work mode
   var wmEl = document.getElementById('workmode');
   if(wmEl && d.work_mode) wmEl.textContent = d.work_mode;

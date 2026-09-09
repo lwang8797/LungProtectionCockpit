@@ -40,14 +40,18 @@ from .config import (
     MONGO_URI, MONGO_DB, COLL_RAW, COLL_1MIN, COLL_ALERTS,
     DEVICE_ID, DP_THRESHOLD, MP_THRESHOLD, RISK_LABELS,
     DEFAULT_WINDOW_HOURS,
-    COMPLIANCE_STRATUM_THRESHOLD,
+    COMPLIANCE_STRATUM_THRESHOLD, MAX_FORWARD_FILL_MIN, DCR_LOW_THRESHOLD,
     CUM_DP_OVER_HOURS_L3, CUM_DP_OVER_HOURS_L4,
     MP_HIGH_STRATUM_THRESHOLD, MP_LOW_STRATUM_THRESHOLD,
     CUM_MP_OVER_HOURS_L3_HIGH, CUM_MP_OVER_HOURS_L4_HIGH,
     CUM_MP_OVER_HOURS_L3_LOW, CUM_MP_OVER_HOURS_L4_LOW,
 )
 from .collector import get_db, get_time_range, collect_raw, get_current_work_mode, get_latest_raw_batch, to_float, PARAM_MAP
-from .calculator import enrich_rows, filter_ventilated, compute_exposure, build_risk_map_points, classify_risk, classify_instant_risk
+from .calculator import (
+    enrich_rows, filter_ventilated, compute_exposure, compute_cumulative,
+    build_points, weighted_mean_series,
+    build_risk_map_points, classify_risk, classify_instant_risk,
+)
 
 logger = logging.getLogger("lung_cockpit.api")
 
@@ -105,6 +109,16 @@ def _clean_nan(obj):
     if isinstance(obj, (list, tuple)):
         return [_clean_nan(v) for v in obj]
     return obj
+
+
+def _as_float(v) -> float:
+    """MongoDB 里缺失/None 的数值 → NaN（积分时自动跳过）"""
+    if v is None:
+        return float("nan")
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float("nan")
 
 
 def get_latest_minute_ts(db, device_id: str = DEVICE_ID) -> int:
@@ -244,6 +258,9 @@ def compute_live_current(db, device_id: str = DEVICE_ID) -> dict:
         "dt": datetime.fromtimestamp(row["ts"] / 1000, tz=timezone.utc).isoformat(),
         "dp": round(dp, 1),
         "mp": round(mp, 2),
+        # 计算模式溯源：dynamic 表示平台压不可信、已降级为 Ppeak−PEEP，界面打 *Dyn*
+        "dp_source": row.get("dp_source", "none"),
+        "mp_source": row.get("mp_source", "none"),
         "risk_level": risk,
         "risk_label": RISK_LABELS.get(risk, "L1 正常"),
         "age_seconds": age,
@@ -350,6 +367,7 @@ def _cumulative_block(s: dict) -> dict:
       cum_over_minutes: {"dp","mp17","mp18","mp20"}  (高暴露分钟数)
       compliance_mean, energy_j, cum_auc_above: {"dp","mp17","mp18","mp20"}
       vent_min, cum_risk
+      window（可选）: 由 _window_cumulative 产出的 24h 滚动口径
     """
     dp_over_min = s["cum_over_minutes"]["dp"] or 0.0
     mp18 = s["cum_over_minutes"]["mp18"] or 0.0
@@ -366,7 +384,8 @@ def _cumulative_block(s: dict) -> dict:
     l4 = CUM_MP_OVER_HOURS_L4_HIGH if stratum == "high" else CUM_MP_OVER_HOURS_L4_LOW
     mp_thr = MP_HIGH_STRATUM_THRESHOLD if stratum == "high" else MP_LOW_STRATUM_THRESHOLD
 
-    return {
+    vent_min = s.get("vent_min") or 0.0
+    block = {
         "dp_over_hours": round(dp_over_hours, 2),
         "mp_over_hours_high": round(mp_over_hours_high, 2),
         "mp_over_hours_low": round(mp_over_hours_low, 2),
@@ -374,11 +393,23 @@ def _cumulative_block(s: dict) -> dict:
         "compliance_stratum": stratum,
         "compliance_mean": round(comp, 1) if s.get("compliance_mean") else None,
         "energy_kj": round((s.get("energy_j") or 0) / 1000.0, 2),
-        "dp_auc_above": round(s["cum_auc_above"]["dp"] or 0, 1),
-        "mp_auc_above_17": round(s["cum_auc_above"]["mp17"] or 0, 1),
-        "mp_auc_above_18": round(s["cum_auc_above"]["mp18"] or 0, 1),
-        "mp_auc_above_20": round(s["cum_auc_above"]["mp20"] or 0, 1),
-        "vent_duration_min": round(s.get("vent_min") or 0, 1),
+        # AUC 统一换算为「值单位 × 小时」（内部按分钟存储）
+        "dp_auc_above": round((s["cum_auc_above"]["dp"] or 0) / 60.0, 2),
+        "mp_auc_above_17": round((s["cum_auc_above"]["mp17"] or 0) / 60.0, 2),
+        "mp_auc_above_18": round((s["cum_auc_above"]["mp18"] or 0) / 60.0, 2),
+        "mp_auc_above_20": round((s["cum_auc_above"]["mp20"] or 0) / 60.0, 2),
+        # 有效通气时长 / 断流 / PTA（URS FR-04）
+        "vent_duration_min": round(vent_min, 1),
+        "vent_hours": round(vent_min / 60.0, 2),
+        "gap_minutes": round(s.get("gap_min") or 0.0, 1),
+        "n_gaps": s.get("n_gaps", 0),
+        "dp_pta": round((dp_over_hours / (vent_min / 60.0) * 100.0)
+                        if vent_min > 0 else 0.0, 1),
+        "mp_pta": round((((s["cum_over_minutes"]["mp17"] or 0.0) / 60.0)
+                         / (vent_min / 60.0) * 100.0) if vent_min > 0 else 0.0, 1),
+        # 计算模式溯源：dynamic 时界面需打 *Dyn*
+        "dp_source": s.get("dp_source", "none"),
+        "mp_source": s.get("mp_source", "none"),
         "risk_level": s.get("cum_risk", 1),
         "risk_label": RISK_LABELS.get(s.get("cum_risk", 1), "L1 正常"),
         "thresholds": CUM_THRESHOLDS,
@@ -390,6 +421,74 @@ def _cumulative_block(s: dict) -> dict:
         "_mp_threshold_used": mp_thr,
         "_mp_l3_used": l3,
         "_mp_l4_used": l4,
+    }
+
+    # 24h 滚动窗口口径（URS G0~G3 判据全部基于 "x h/24h"）
+    w = s.get("window")
+    if w:
+        block["window"] = w
+    return block
+
+
+def _window_cumulative(db, device_id: str, start_ts: int, latest_ts: int,
+                       window_hours: float) -> dict:
+    """按 URS 口径计算「滚动窗口」内的暴露剂量（默认 24 h）。
+
+    与「通气全程累计」不同：这里只读窗口内的 metrics_1min 分钟文档，
+    按真实时间积分（≤4h 前向填充 / >4h 断流），得到 TAT、AUC、PTA、DCR。
+    风险矩阵 G0~G3 的判据（如 TAT < 5 h/24h）应使用这里的数值。
+    """
+    docs = list(db[COLL_1MIN].find(
+        {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts},
+         "dp_mean": {"$ne": None}, "mp_mean": {"$ne": None}},
+        {"_id": 0, "minute": 1, "dp_mean": 1, "mp_mean": 1, "vt_mean": 1},
+    ).sort("minute", 1))
+
+    if not docs:
+        return None
+
+    rows = []
+    for d in docs:
+        dp, mp, vt = _as_float(d.get("dp_mean")), _as_float(d.get("mp_mean")), \
+            _as_float(d.get("vt_mean"))
+        rows.append({
+            "ts": d["minute"], "dP": dp, "MP": mp,
+            "CRS": (vt / dp) if (not math.isnan(vt) and not math.isnan(dp) and dp > 0)
+                   else float("nan"),
+        })
+
+    cum = compute_cumulative(rows, MAX_FORWARD_FILL_MIN)
+
+    # 顺应性：按有效通气时长加权（与聚合层的全程累计同一口径 weighted_mean_series）
+    crs_pts = build_points(rows, "CRS")
+    comp = weighted_mean_series(crs_pts, MAX_FORWARD_FILL_MIN)
+    stratum = "high" if (not math.isnan(comp)
+                         and comp > COMPLIANCE_STRATUM_THRESHOLD) else "low"
+
+    # 窗口 DCR：分母用窗口自然时长（URS FR-01 的 24h 口径）
+    win_min = window_hours * 60.0
+    dcr_window = (cum["vent_minutes"] / win_min * 100.0) if win_min > 0 else 0.0
+
+    return {
+        "hours": window_hours,
+        "vent_hours": round(cum["vent_hours"], 2),
+        "gap_minutes": round(cum["gap_minutes"], 1),
+        "n_gaps": cum["n_gaps"],
+        "dp_tat_hours": round(cum["dp_tat_hours"], 2),
+        "mp_tat_hours": {k: round(v, 2) for k, v in cum["mp_tat_hours"].items()},
+        "dp_auc_h": round(cum["dp_auc_h"], 2),
+        "mp_auc_h": {k: round(v, 2) for k, v in cum["mp_auc_h"].items()},
+        "dp_pta": round(cum["dp_pta"], 1),
+        "mp_pta": round(cum["mp_pta"], 1),
+        "energy_kj": round(cum["energy_j"] / 1000.0, 2),
+        "compliance_mean": round(comp, 1) if not math.isnan(comp) else None,
+        "compliance_stratum": stratum,
+        "dcr": round(dcr_window, 1),
+        # 原始上报密度：有数据的分钟数 / 窗口自然分钟数（不含 4h 前向填充）
+        "dcr_raw": round(len(rows) / win_min * 100.0, 1) if win_min > 0 else 0.0,
+        "dcr_low": dcr_window < DCR_LOW_THRESHOLD,
+        "dcr_threshold": DCR_LOW_THRESHOLD,
+        "points": len(rows),
     }
 
 
@@ -447,7 +546,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
         cum_state = {
             "cum_over_minutes": {
                 "dp": last_doc.get("cum_dp_over_min", 0),
-                "mp17": last_doc.get("cum_mp_over_min_18", 0),
+                # 修正：此前 mp17 误读 cum_mp_over_min_18（当时该字段不存在），
+                #       导致 MP PTA 与窗口口径对不上（27.9% vs 81.7%）。
+                "mp17": last_doc.get("cum_mp_over_min_17", 0),
                 "mp18": last_doc.get("cum_mp_over_min_18", 0),
                 "mp20": last_doc.get("cum_mp_over_min_20", 0),
             },
@@ -461,6 +562,12 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             },
             "vent_min": vent_min,
             "cum_risk": cum_risk,
+            "gap_min": last_doc.get("cum_gap_min", 0) or 0,
+            "n_gaps": last_doc.get("cum_n_gaps", 0) or 0,
+            "dp_source": last_doc.get("dp_source", "none"),
+            "mp_source": last_doc.get("mp_source", "none"),
+            # 24h 滚动窗口口径（URS FR-04 / G0~G3 判据所需）
+            "window": _window_cumulative(db, device_id, start_ts, latest_ts, hours),
         }
 
         result = {
@@ -503,7 +610,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
 
         cum_risk = exposure["cumulative_risk_level"]
         risk = max(exposure["risk_level"], cum_risk)
-        vent_min = len(use_rows) * 4 / 60
+        # 有效通气时长：按真实时间跨度积分（含 ≤4h 前向填充），
+        # 而非旧的「点数 × 4 秒」硬编码（实测会把 8h 通气算成 0.1 min）。
+        vent_min = exposure.get("vent_minutes") or 0.0
 
         cum_state = {
             "cum_over_minutes": exposure["cum_over_minutes"],
@@ -512,6 +621,11 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
             "cum_auc_above": exposure["cum_auc_above"],
             "vent_min": vent_min,
             "cum_risk": cum_risk,
+            "gap_min": exposure.get("gap_minutes", 0) or 0,
+            "n_gaps": exposure.get("n_gaps", 0) or 0,
+            "dp_source": exposure.get("dp_source", "none"),
+            "mp_source": exposure.get("mp_source", "none"),
+            "window": _window_cumulative(db, device_id, start_ts, latest_ts, hours),
         }
 
         result = {
@@ -537,8 +651,8 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
                 "over_pct": round(exposure["mp"]["over_pct"], 1),
             },
             "cumulative": _cumulative_block(cum_state),
-            "vent_minutes": int(len(use_rows) * 4 / 60),
-            "total_minutes": int(len(rows) * 4 / 60),
+            "vent_minutes": int(vent_min),
+            "total_minutes": int(exposure.get("vent_minutes") or 0),
         }
 
     # ── 实时当前值（方案A）：原始批次到达即计算，不等聚合分钟关门 ──
@@ -551,6 +665,9 @@ def _get_overview_data(device_id: str = DEVICE_ID, hours: float = DEFAULT_WINDOW
     if live.get("valid") and result.get("dp") and result.get("mp"):
         result["dp"]["current"] = live["dp"]
         result["mp"]["current"] = live["mp"]
+        # 实时读数降级为动态口径时，前端在数值旁打 *Dyn*
+        result["dp"]["source"] = live.get("dp_source", "none")
+        result["mp"]["source"] = live.get("mp_source", "none")
     # ── 通气参数快照（方案A 修复：前端此前为写死占位值）──
     result["snapshot"] = compute_snapshot(db, device_id)
     return _clean_nan(result)

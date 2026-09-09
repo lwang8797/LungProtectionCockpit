@@ -145,6 +145,33 @@ def collect_raw(
     return result
 
 
+def get_data_minutes(db, device_id: str = DEVICE_ID,
+                     start_ts: Optional[int] = None,
+                     end_ts: Optional[int] = None) -> list:
+    """列出窗口内「确实有上报数据」的整分钟时间戳（升序）。
+
+    性能：旧版 backfill 对窗口内每一分钟都发一次查询（720h = 43200 次往返，
+    实测超时）。真实设备上报稀疏（实测 30 批 / 18 h），绝大多数分钟是空的，
+    先在服务端聚合出有数据的分钟桶，只对这些分钟做聚合，往返数下降 3 个量级。
+    """
+    coll = db[COLL_RAW]
+    query = {"deviceId": device_id}
+    if start_ts is not None or end_ts is not None:
+        rng = {}
+        if start_ts is not None:
+            rng["$gte"] = start_ts
+        if end_ts is not None:
+            rng["$lte"] = end_ts
+        query["timeStamp"] = rng
+
+    pipeline = [
+        {"$match": query},
+        {"$group": {"_id": {"$floor": {"$divide": ["$timeStamp", 60000]}}}},
+        {"$sort": {"_id": 1}},
+    ]
+    return [int(d["_id"]) * 60000 for d in coll.aggregate(pipeline)]
+
+
 def collect_minute_raw(db, device_id: str, minute_start_ts: int) -> list:
     """
     采集指定分钟（minute_start_ts 到 +60000ms）的原始参数。

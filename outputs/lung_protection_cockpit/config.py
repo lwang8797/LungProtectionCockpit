@@ -13,10 +13,13 @@ COLL_1MIN = "metrics_1min"         # 1分钟聚合结果（本服务创建）
 COLL_ALERTS = "cockpit_alerts"     # 预警事件（本服务创建）
 COLL_WORK_MODE = "work_mode"       # 通气模式集合（仅在变化时写入）
 
-# 当前在线呼吸机设备。可用环境变量 COCKPIT_DEVICE_ID 临时覆盖（便于回退到旧设备
-# ATVIPVTEST1）。两台设备使用相同的 paramId 方案，PARAM_MAP 无需改动。
-# 注：ATVIPVTEST1 数据停在 2026-08-03 已离线；1787816609 为当前在线设备（2026-08-27 实测）。
+# 当前呼吸机设备。可用环境变量 COCKPIT_DEVICE_ID 临时覆盖。
+# 注（2026-09-09 实测）：measure_param 全集合现仅剩 1787816609 的 480 条（30 批 × 16 参数，
+#   跨度 2026-08-27 07:44 ~ 08-28 01:46 UTC）。历史设备 ATVIPVTEST1 的数据已被平台侧清理，
+#   count = 0（history-data 库 measure_param_all 亦只有 1787816609 的 480 条）。
+#   两台设备 paramId 方案一致，若 ATVIPVTEST1 数据回填，改这里即可切换。
 DEVICE_ID = os.environ.get("COCKPIT_DEVICE_ID", "1787816609")
+KNOWN_DEVICES = ["1787816609", "ATVIPVTEST1"]
 
 # ── 参数 paramId -> 标准化名 ──
 # 注意：PR(128) 是患者自主呼吸频率，测试环境恒为"---"
@@ -39,8 +42,30 @@ PARAM_MAP = {
 }
 
 # MP 公式所需的 paramId 子集
-MP_PARAM_IDS = [101, 106, 113, 160]   # PIP, Vte, ftotal, DrivePress
+# Vt 由 Vti(110) 提供（回退 Vte(106)），RR 由 ftotal(113) 提供，故两者都要采集。
+MP_PARAM_IDS = [101, 102, 104, 106, 110, 113]
 ALL_PARAM_IDS = list(PARAM_MAP.keys())
+
+# ── 参数口径（2026-09-09 用户确认，勿擅自改动）──
+# RR  : 固定用 ftotal(113)（总呼吸频率）。不再回退 PR(128)。
+#       注：已发现 Vte×RR/1000=12.07 L/min 与设备上报 MVe=8.0 L/min 不一致，
+#           经确认仍以 ftotal 为准。
+# VT  : 优先 Vti(110)（吸入潮气量），缺失时回退 Vte(106)。
+VT_SOURCE_KEYS = ["Vti", "Vte"]
+RR_SOURCE_KEYS = ["ftotal"]
+
+# Pplat 可信性判据（用户确认：Pplat 不可无条件信任，Ppeak 更可信）
+# 只有同时满足 PEEP < Pplat < Ppeak 时才认定平台压有效、可用静态驱动压；
+# 否则一律降级为动态 ΔP = Ppeak − PEEP，并在界面打 *Dyn* 标记。
+# 实测曾出现 Pplat=25.0 == PIP=25.0 的批次，此类必须降级。
+PPLAT_STRICT_ORDER = True    # 要求 Pplat 严格小于 Ppeak
+
+# ── 缺失值插补 / 断流（URS FR-01）──
+# 通气参数缺失 ≤4h 采用前向填充计入累积；>4h 触发「数据断流」标记，
+# 累计剂量计算暂停（超出 4h 的部分不计入暴露），并记录断流时长。
+MAX_FORWARD_FILL_MIN = 240.0     # 4 h
+# 数据完整率 DCR 低于此值在界面提示置信度降级
+DCR_LOW_THRESHOLD = 85.0         # %
 
 # ── 临床阈值（单值维度，循证）──
 DP_THRESHOLD = 15.0   # cmH2O  (Amato 2015 NEJM, n=3,562；10/14 篇引用)
