@@ -249,3 +249,30 @@
 - 顺势确认旧设备 `ATVIPVTEST1`：`history-data.measure_param` 已**清空**（DBA 清理），不再支持回退。
 
 **未实施**（待 P1/P2 批次）：斜率 / CUSUM / GBTM、G0~G3 防抖动 + 自动解除、双环同心剂量计、72h/交接班摘要、趋势图横轴真实时间、免责声明、异常值过滤、CSV 导出。
+
+---
+
+## 六、P1 批次实施结果（2026-09-09，commit b93daa6）
+
+> **设计口径更新（用户拍板）**：P1 严格按 URS 原文实现，不因当前稀疏库数据妥协；
+> 测试用自造、与 `measure_param` 读结构一致的**连续分钟数据**验证，真实设备接入后复测。
+
+| 序号 | URS | 项目 | 状态 | 落地 / 验证 |
+| :-: | :--- | :--- | :-: | :--- |
+| 1 | FR-05.1 | 滑动线性回归斜率 1h/6h/24h | ✅ | `analyzer.sliding_slopes`；窗内点<N_min(3) 返回 insufficient；直线还原 β=0.5/1.0 自测通过 |
+| 2 | FR-05.2 | CUSUM 变化点（k=2 / h=5σ / 断流重置 / 冷却去重） | ✅ | `analyzer.cusum_track`；step 平移检出 up；持续大漂移折叠为分段起跳（60min cooldown） |
+| 3 | FR-06 | G0-G3 矩阵 + 防抖 + 自动解除 | ✅ | `analyzer.DebounceGradeEngine`：等级=max(TAT,瞬时持续)；G1≥60/G2≥30/G3≥15 持续；回落≥10min 解除（仅瞬时维度）；ΔP≥20 G3 专用游程；<15min 硬地板不响 |
+| 4 | FR-05/06 | 后端 `/api/analysis` | ✅ | `api._compute_analysis`：metrics_1min→连续序列，返回 grade/slope/cusum；series 参数支持测试注入 |
+| 5 | FR-07 + NFR-03 | 前端 URS 分析卡 + 免责声明 + 72h 档 | ✅ | 总览新增 G0-G3 徽章 + 三窗斜率表；常驻免责声明；ΔP/MP 趋势补 72h 档 |
+| 6 | — | 测试数据生成器 + 端到端演示 | ✅ | `scripts/gen_urs_testdata.py` + `scripts/demo_p1.py`（防抖触发/解除/伪差拒绝、CUSUM 检出） |
+
+**验证**：`scripts/test_analyzer.py` 16 项断言全过；`scripts/demo_p1.py` 全过；
+`/api/analysis` HTTP 200 且字段契约与前端 `loadAnalysis` 对齐；页面 200，前端 JS `node --check` 通过。
+预警确认回归 E2E `test_alert_ack.py` 23 项全过（无回归）。
+
+**遗留 / 待真实数据验证阶段**
+
+- 趋势图窗口仍按数据数组索引切片，未改真实时钟时间轴——需接入真实连续数据后，
+  配合「分钟对齐 + 真时间 x 轴」一起改，避免破坏现有稀疏视图。
+- GBTM（FR-05.3，通气第 4 天回溯）、双环同心剂量计、交接班/俯卧位/CSV 导出留待后续批次。
+- 当前稀疏真实数据下 `/api/analysis` 各档 slope 多显「数据不足」、grade 偏低，属预期。

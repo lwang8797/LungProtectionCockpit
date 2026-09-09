@@ -107,8 +107,29 @@ node scripts/test_alert_ack_frontend.js --spawn
 | CRS 顺应性分层 | ✅ | 全程与窗口**同口径**（按有效通气时长加权滚动），避免前后分层结论不一致 |
 | *Dyn* 降级标记 | ✅ | 前端实时仪表 + 累积卡均显示；计算引擎 `dp_source/mp_source` 实时+全程同步 |
 
-**未实施**（待 P1/P2 批次确认后开发）：FR-05 斜率/CUSUM/GBTM 变化点检测、FR-06
-分级报警防抖与自动解除、FR-07 72h/交接班/俯卧位摘要、免责声明 + 脱敏、CSV 导出。
+**未实施 / 待定**（P1 之后）：FR-05 GBTM 轨迹归属（通气第 4 天回溯）、FR-07 双环
+剂量计仪表盘 + 交接班摘要 / 俯卧位 / 导出、趋势图横轴改真实时钟时间轴（当前为数据
+点索引切片）、完整 CSV 导出。
+
+**P1 实施进度（2026-09-09 起，commit b93daa6）**：
+
+> 设计口径：用户指示 **P1 严格按 URS 原文设计**，不受当前稀疏库数据束缚；测试用
+> **生成器造连续分钟数据**验证，真实验证待真实设备接入连续数据后进行。
+
+| URS | 交付 | 验证方式 |
+| :--- | :--- | :--- |
+| FR-05 滑动斜率 | `analyzer.sliding_slopes`：1h/6h/24h 三窗回归 β（窗内点<N_min 返回 insufficient） | `scripts/test_analyzer.py` 直线还原 + ramp 场景 |
+| FR-05 CUSUM 变化点 | `analyzer.cusum_track`：双侧 S±、k=2、h=5σ、>4h 断流重置、同侧 60min 冷却去重 | step 平移检出 up 变化点；断流不崩溃 |
+| FR-06 G0-G3 矩阵 + 防抖 | `analyzer.DebounceGradeEngine`：等级=max(TAT,瞬时持续)；G1≥60/G2≥30/G3≥15 持续确认；回落≥10min 解除（仅瞬时维度）；ΔP≥20 G3 专用游程；<15min 硬地板不响 | 防抖触发/解除/伪差拒绝，见 `scripts/demo_p1.py` |
+| 后端接入 | `/api/analysis`：返回 grade{G0-G3,stratum,TAT,sustain,events} + slope + cusum | HTTP 200 + 字段契约对齐前端 |
+| 前端 | 总览「URS 趋势分析」卡（G0-G3 徽章+三窗斜率表）、常驻免责声明（NFR-03）、ΔP/MP 趋势 72h 档 | 页面 200；前端 JS `node --check` 通过 |
+| 测试数据生成器 | `scripts/gen_urs_testdata.py`（16 参数/批、与 `measure_param` 读结构一致，可 scenario/断流/rows） | 直喂 `_compute_analysis` 全链路 |
+
+**P1 测试运行**：
+```
+.venv\Scripts\python.exe scripts/test_analyzer.py   # 引擎 16 项断言
+.venv\Scripts\python.exe scripts/demo_p1.py          # 端到端演示（生成数据）
+```
 
 **约束**：
 
