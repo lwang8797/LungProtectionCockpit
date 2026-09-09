@@ -375,6 +375,21 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <div class="an-meta" id="anMeta" style="margin-top:8px;font-size:12px;color:var(--t-2);line-height:1.7;"></div>
         </div>
 
+        <!-- URS 07-3：顺应性分层标签卡 -->
+        <div class="card" id="cmpCard" style="border-left:4px solid var(--t-3);">
+          <h3>顺应性分层
+            <span class="badge" id="cmpGroup" style="margin-left:10px;">--</span>
+            <span class="hint" style="margin-left:auto;">URS 07-3｜分层决定 MP 安全上限</span>
+          </h3>
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;">
+            <div class="pcell"><div class="k">C<sub>RS</sub> 呼吸系统顺应性</div><div class="v" id="cmpCrs">-- <small>mL/cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">分层分界值</div><div class="v" id="cmpThr">32.7 <small>mL/cmH₂O</small></div></div>
+            <div class="pcell"><div class="k">本层 MP 安全上限</div><div class="v" id="cmpMpLimit">-- <small>J/min</small></div></div>
+            <div class="pcell"><div class="k">本层高暴露 L3 / L4</div><div class="v" id="cmpTatLimit">-- <small>h</small></div></div>
+          </div>
+          <div class="note" id="cmpNote" style="margin-bottom:0;">分层口径：C<sub>RS</sub> 按有效通气时长加权滚动，与 24h 窗口同口径；分层仅影响 MP 轨道阈值，ΔP 轨道恒用 15 cmH₂O。</div>
+        </div>
+
         <!-- P1：免责声明（NFR-03）常驻 -->
         <div class="card" style="border-left:4px solid var(--watch);">
           <div style="font-size:12.5px;color:var(--t-2);line-height:1.75;">
@@ -1375,7 +1390,41 @@ async function loadAnalysis(){
     }
     renderSlopeTable('anDpSlope', d.slope&&d.slope.dp);
     renderSlopeTable('anMpSlope', d.slope&&d.slope.mp);
+    renderComplianceCard(g);
   } catch(e){ console.error('loadAnalysis error:', e); }
+}
+
+// URS 07-3：顺应性分层标签卡（CRS 数值 + 分组 + 本层安全功率上限）
+// 阈值与 config.py 保持一致：高顺应性 MP≥18 / L3 2h / L4 6h；低顺应性 MP≥20 / L3 12h / L4 24h
+function renderComplianceCard(g){
+  var crsEl = document.getElementById('cmpCrs');
+  if(!crsEl) return;
+  var high = (g && g.stratum === 'high');
+  var crs  = (g && g.compliance_mean!=null) ? g.compliance_mean : null;
+  var card = document.getElementById('cmpCard');
+  var grp  = document.getElementById('cmpGroup');
+  var isUnknown = (crs==null || !(g && g.stratum));
+
+  crsEl.innerHTML = (crs!=null ? (+crs).toFixed(1) : '--') + ' <small>mL/cmH₂O</small>';
+
+  if(grp){
+    grp.textContent = isUnknown ? '数据不足' : (high ? '高顺应性肺 · 剂量敏感型' : '低顺应性肺 · 窄带耐受型');
+    grp.className = 'badge ' + (isUnknown ? '' : (high ? 'b-warn' : 'b-watch'));
+  }
+  document.getElementById('cmpMpLimit').innerHTML =
+    isUnknown ? '-- <small>J/min</small>' : ('&lt; ' + (high?18:20) + ' <small>J/min</small>');
+  document.getElementById('cmpTatLimit').innerHTML =
+    isUnknown ? '-- <small>h</small>' : ((high?'2 / 6':'12 / 24') + ' <small>h</small>');
+  if(card) card.style.borderLeftColor = isUnknown ? 'var(--t-3)' : (high ? 'var(--warn)' : 'var(--watch)');
+
+  var note = document.getElementById('cmpNote');
+  if(note){
+    note.innerHTML = isUnknown
+      ? '分层口径：C<sub>RS</sub> 按有效通气时长加权滚动；当前数据不足以分层（需有效通气分钟与 ΔP 有效值），接入连续数据后自动生效。'
+      : (high
+          ? '本层（C<sub>RS</sub> &gt; 32.7）为<b>剂量敏感型</b>：MP 安全上限 <b>&lt;18 J/min</b>，高暴露累计 ≥2h 触发 L3、≥6h 触发 L4。'
+          : '本层（C<sub>RS</sub> ≤ 32.7）为<b>窄带耐受型</b>：MP 安全上限 <b>&lt;20 J/min</b>，因低顺应性风险局限于窄带，累计窗口放宽至 ≥12h 触发 L3、≥24h 触发 L4。');
+  }
 }
 
 function setAnEmpty(txt){
