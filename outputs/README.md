@@ -138,7 +138,7 @@ node scripts/test_alert_ack_frontend.js --spawn
 
 **P1 测试运行**：
 ```
-.venv\Scripts\python.exe scripts/test_analyzer.py   # 引擎 16 项断言
+.venv\Scripts\python.exe scripts/test_analyzer.py   # 引擎 19 项断言
 .venv\Scripts\python.exe scripts/demo_p1.py          # 端到端演示（生成数据）
 ```
 
@@ -149,3 +149,37 @@ node scripts/test_alert_ack_frontend.js --spawn
 - 仅针对单设备，无需考虑 32 床并发。旧设备 `ATVIPVTEST1` 在 `history-data` 库的
   `measure_param` 已**清空**（只剩 `1787816609` 的 480 条），不再回退。
 - 数据极度稀疏：当前设备最长 14h 上报间隔 → DCR=11~33%，提示置信度降级是常态。
+
+## 模拟数据演示（真实数据稀疏时预览 URS 效果）
+
+真实设备数据稀疏（几十分钟一批），双环剂量计、累积暴露、24h 滚动窗口、滑动斜率/CUSUM
+变化点、G0-G3 分级防抖、顺应性分层这些效果在稀疏数据下几乎看不出。用**模拟生成的连续分钟
+数据**（结构与 `measure_param` 完全一致，写入独立模拟设备 `SIM900000001`，不污染真实数据）
+即可全链路预览。
+
+**一键演示（推荐）**：双击 `outputs\模拟数据演示.bat`（自动清理旧模拟 → 播种最近 24h
+`surge` 越限场景 → 用模拟设备启动后端端口 8090），浏览器打开 `http://localhost:8090/`。
+
+**分步命令行**：
+
+```
+REM 1) 播种最近 48h 场景（surge=越限累积明显；step=后段抬到 ΔP≥15；ramp=缓慢漂移；lowcomp=低顺应性）
+.venv\Scripts\python.exe scripts\seed_sim_device.py --hours 48 --scenario surge
+.venv\Scripts\python.exe scripts\seed_sim_device.py --hours 48 --scenario step --step-after 360
+.venv\Scripts\python.exe scripts\seed_sim_device.py --hours 48 --scenario ramp --ramp 0.8
+.venv\Scripts\python.exe scripts\seed_sim_device.py --hours 24 --scenario lowcomp
+
+REM 2) 用模拟设备启动后端
+set COCKPIT_DEVICE_ID=SIM900000001 && set COCKPIT_PORT=8090
+.venv\Scripts\python.exe -m lung_protection_cockpit.main all --hours 48
+
+REM 3) （可选，另一个窗口）数值实时跳动——每 5s 追加 1 分钟批次
+.venv\Scripts\python.exe scripts\sim_live_feed.py --scenario surge --interval 5
+
+REM 清理模拟数据
+.venv\Scripts\python.exe scripts\seed_sim_device.py --clean --device SIM900000001
+```
+
+> 各场景能看到的重点：`surge` → 双环剂量计快速填充 + 等级升到 G2/G3；`step` →
+> ΔP 越过 15 后触发越限预警 + 分级确认；`ramp` → 趋势斜率上行 + CUSUM 漂移旗；
+> `lowcomp` → 顺应性分层切到「低顺应性·窄带耐受」，MP 安全上限降为 20。
