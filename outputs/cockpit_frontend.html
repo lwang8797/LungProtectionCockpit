@@ -168,6 +168,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
 .al-item .meta{font-size:11.5px;color:var(--t-3);margin-top:2px;line-height:1.55;}
 .al-item .st{margin-left:auto;font-size:12px;color:var(--t-2);display:flex;align-items:center;gap:10px;}
 .catpill{display:inline-block;background:var(--pur);color:#fff;font-size:10px;font-weight:bold;padding:2px 7px;border-radius:8px;margin-right:6px;vertical-align:1px;}
+.gbadge{font-size:12px;font-weight:800;padding:4px 10px;border-radius:12px;color:#fff;vertical-align:1px;}
+.gbadge.g0{background:var(--ok);} .gbadge.g1{background:var(--watch);color:#000;}
+.gbadge.g2{background:var(--warn);} .gbadge.g3{background:var(--dan);}
+.an-grid .tbl td{font-size:12px;}
 
 /* 设置 */
 .set-row{display:flex;align-items:center;gap:16px;padding:13px 4px;border-bottom:1px dashed var(--line);}
@@ -350,6 +354,34 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           </div>
           <div class="note">⚠ <b>气道版本局限</b>：气道 ΔP / MP 包含胸壁因素，肥胖、腹高压、胸壁僵硬患者可能<b>高估或低估</b>真实肺应力与能量负荷。</div>
         </div>
+
+        <!-- P1：URS 趋势分析（FR-05 斜率 + CUSUM + FR-06 G0-G3） -->
+        <div class="card" id="anCard">
+          <h3>URS 趋势分析 · 变化点与分级防抖
+            <span class="badge gbadge" id="anGrade" style="margin-left:10px;">--</span>
+            <span class="hint" style="margin-left:auto;">FR-05 滑动斜率 + CUSUM｜FR-06 G0-G3 持续防抖（作用于连续 1-min 序列）</span>
+          </h3>
+          <div class="note" style="margin-bottom:8px;" id="anEmpty">斜率各档需窗内 ≥3 有效点；当前稀疏数据会显示「数据不足」，接入连续数据后自动生效。</div>
+          <div class="an-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;">
+            <div>
+              <div class="k" style="color:var(--t-3);margin-bottom:4px;">ΔP 驱动压</div>
+              <table class="tbl" id="anDpSlope"><tbody><tr><td colspan="3" style="color:var(--t-3)">--</td></tr></tbody></table>
+            </div>
+            <div>
+              <div class="k" style="color:var(--t-3);margin-bottom:4px;">MP 机械功率</div>
+              <table class="tbl" id="anMpSlope"><tbody><tr><td colspan="3" style="color:var(--t-3)">--</td></tr></tbody></table>
+            </div>
+          </div>
+          <div class="an-meta" id="anMeta" style="margin-top:8px;font-size:12px;color:var(--t-2);line-height:1.7;"></div>
+        </div>
+
+        <!-- P1：免责声明（NFR-03）常驻 -->
+        <div class="card" style="border-left:4px solid var(--watch);">
+          <div style="font-size:12.5px;color:var(--t-2);line-height:1.75;">
+            <b style="color:var(--t-1)">免责声明（NFR-03）</b>　本系统提供暴露累积剂量与趋势统计，<b>仅供临床诊疗决策参考，不作为调整通气参数的唯一依据</b>；
+            临床干预需结合血气分析与患者全身病情综合评估。
+          </div>
+        </div>
       </div>
 
       <!-- ========== 页2 ΔP趋势 ========== -->
@@ -358,7 +390,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <span class="title">ΔP 暴露趋势 · 气道驱动压</span>
           <span class="sub">Pplat − PEEP｜CUSUM 变化点标记</span>
           <div class="seg" id="dpWin" style="margin-left:auto;">
-            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button>
+            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button><button class="btn" data-w="4320">72小时</button>
           </div>
           <button class="btn" onclick="toast('导出当前窗口 1 分钟粒度 CSV')">导出 CSV</button>
         </div>
@@ -388,7 +420,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
           <span class="title">MP 暴露趋势 · 气道机械功率</span>
           <span class="sub">MP = 0.098×RR×VT×(PIP−0.5ΔP)（VCV）</span>
           <div class="seg" id="mpWin" style="margin-left:auto;">
-            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button>
+            <button class="btn" data-w="60">1小时</button><button class="btn" data-w="360">6小时</button><button class="btn on" data-w="1440">24小时</button><button class="btn" data-w="4320">72小时</button>
           </div>
           <button class="btn" onclick="toast('导出当前窗口 1 分钟粒度 CSV')">导出 CSV</button>
         </div>
@@ -1308,7 +1340,68 @@ async function fetchOverview(){
     var r = await fetch(API+'/api/overview');
     ovData = await r.json();
     updateOverviewUI(ovData);
+    loadAnalysis();
   } catch(e) { console.error('fetchOverview error:', e); }
+}
+
+// P1：加载 /api/analysis（URS FR-05 斜率+CUSUM、FR-06 G0-G3）到总览卡
+async function loadAnalysis(){
+  var card = document.getElementById('anCard');
+  if(!card) return;
+  try {
+    var r = await fetch(API+'/api/analysis?hours=24');
+    var d = await r.json();
+    if(d.error){ setAnEmpty('暂无数据'); return; }
+    var g = d.grade || {};
+    var badge = document.getElementById('anGrade');
+    if(badge){
+      badge.textContent = (g.level!=null ? (g.label||('G'+g.level)) : '--');
+      badge.className = 'badge gbadge g'+(g.level!=null?g.level:0);
+    }
+    var empty = document.getElementById('anEmpty');
+    if(empty) empty.style.display = 'none';
+
+    // 顺应性 / 24h TAT 上下文
+    var meta = document.getElementById('anMeta');
+    if(meta){
+      var stratum = g.stratum==='high' ? '高顺应性·剂量敏感' : '低顺应性·窄带耐受';
+      var sus = (g.dp_sustain_min!=null&&g.dp_sustain_min>0) ? ' · ΔP≥15 已持续 '+g.dp_sustain_min+'min' : '';
+      var ev = (g.events&&g.events.length) ? ' · 最近事件 '+(g.events[g.events.length-1].event==='raise'?'升级':'降级')
+                 +'至 '+g.events[g.events.length-1].label : '';
+      meta.innerHTML = '顺应性：<b>'+stratum+'</b>'+
+        '（CRS='+(g.compliance_mean!=null?g.compliance_mean:'--')+' mL/cmH₂O）'+
+        '　·　24h TAT：ΔP '+(g.dp_tat_24h!=null?g.dp_tat_24h+'h':'--')+
+        ' / MP≥17 '+(g.mp_tat_24h!=null?g.mp_tat_24h+'h':'--')+sus+ev;
+    }
+    renderSlopeTable('anDpSlope', d.slope&&d.slope.dp);
+    renderSlopeTable('anMpSlope', d.slope&&d.slope.mp);
+  } catch(e){ console.error('loadAnalysis error:', e); }
+}
+
+function setAnEmpty(txt){
+  var e = document.getElementById('anEmpty');
+  if(e){ e.style.display='block'; e.textContent = txt||'--'; }
+}
+
+function renderSlopeTable(id, slopes){
+  var tb = document.getElementById(id);
+  if(!tb) return;
+  if(!slopes || !Object.keys(slopes).length){
+    tb.querySelector('tbody').innerHTML = '<tr><td style="color:var(--t-3)">--</td></tr>';
+    return;
+  }
+  var order = [1,6,24];
+  var rows = '';
+  var hdr = '<tr><th>窗口</th><th>斜率 β</th><th>点数</th></tr>';
+  order.forEach(function(wh){
+    var s = slopes[wh] || {};
+    var beta = s.beta!=null ? (s.beta>0?'<span style="color:var(--dan)">▲ '+s.beta.toFixed(3)+'</span>'
+                              : (s.beta<0?'<span style="color:var(--ok)">▼ '+s.beta.toFixed(3)+'</span>'
+                                         :'<span>0</span>'))
+                            : (s.insufficient?'<span style="color:var(--t-3)">数据不足</span>':'<span style="color:var(--t-3)">--</span>');
+    rows += '<tr><td>'+wh+'h</td><td>'+beta+'</td><td>'+((s.n!=null)?s.n:'--')+'</td></tr>';
+  });
+  tb.querySelector('tbody').innerHTML = hdr + rows;
 }
 
 // 风险图页签"当前位置读数"——与总览页当前值保持一致（同一 dpVal/mpVal 来源）
