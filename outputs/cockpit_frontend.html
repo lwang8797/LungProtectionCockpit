@@ -57,11 +57,35 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
 #nav .spacer{flex:1;}
 
 #main{flex:1;overflow:hidden;position:relative;background:var(--bg-1);}
-.page{position:absolute;inset:0;padding:14px 16px;overflow-y:auto;display:none;}
+.page{position:absolute;inset:0;padding:10px 14px;overflow:hidden;display:none;}
 .page.on{display:block;}
 .card{background:var(--bg-2);border-radius:8px;padding:12px 14px;border:1px solid var(--line);}
 .card h3{font-size:13px;color:var(--t-2);font-weight:bold;display:flex;align-items:center;gap:6px;margin-bottom:9px;}
 .card h3 .hint{font-weight:normal;font-size:11px;color:var(--t-3);}
+
+/* 总览「累积暴露监测」卡（16:9 单屏，两行布局） */
+.exp-card{padding:9px 12px;}
+.exp-card h3{margin-bottom:6px;}
+.exp-card .badge{font-size:10.5px;padding:2px 9px;}
+.exp-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;}
+.exp-left{min-width:0;display:flex;flex-direction:column;}
+.exp-left .seg{align-self:flex-start;}
+.exp-left .seg .btn{padding:4px 12px;min-height:26px;font-size:11.5px;}
+.exp-right{min-width:0;display:flex;flex-direction:column;gap:7px;}
+.exp-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+.exp-metrics .pcell{padding:6px 9px;}
+.exp-metrics .pcell .k{font-size:10.5px;}
+.exp-metrics .pcell .v{font-size:16px;}
+.exp-metrics .pcell .v small{font-size:9.5px;}
+.exp-progress{display:flex;flex-direction:column;gap:4px;}
+.exp-progress .pr-row{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--t-3);}
+.exp-progress .pr-bar{flex:1;height:7px;border-radius:4px;background:var(--bg-4);overflow:hidden;position:relative;}
+.exp-progress .pr-fill{height:100%;border-radius:4px;transition:width .3s;}
+.exp-progress .pr-mark{position:absolute;top:-2px;width:1px;height:11px;background:rgba(255,255,255,.45);}
+.exp-concl{background:var(--bg-1);border:1px solid var(--line);border-left:3px solid var(--t-4);border-radius:6px;padding:7px 10px;display:flex;flex-direction:column;gap:3px;}
+.exp-concl .ec-hint{font-size:11.5px;font-weight:bold;color:var(--t-1);}
+.exp-concl .ec-advice{font-size:11px;color:var(--t-2);line-height:1.5;}
+.exp-concl .ec-basis{font-size:10px;color:var(--t-3);line-height:1.45;}
 
 /* 整体评级横幅 */
 .rating-band{position:relative;border-radius:8px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:18px;overflow:hidden;}
@@ -114,14 +138,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
   background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.45);border-radius:3px;
   padding:0 3px;margin-left:2px;vertical-align:middle;letter-spacing:.3px;}
 .dyn-tag[hidden]{display:none;}
-/* 24h 滚动窗口块 */
-.win-block{margin-top:10px;background:var(--bg-1);border:1px solid var(--line);border-radius:6px;padding:8px 12px 10px;}
-.win-head{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t-2);margin-bottom:8px;}
-.win-head b{color:var(--t-1);font-size:12.5px;}
-.dcr-chip{font-size:10.5px;padding:1px 7px;border-radius:9px;background:rgba(34,197,94,.14);
-  color:var(--ok);border:1px solid rgba(34,197,94,.35);font-weight:700;}
-.dcr-chip.low{background:rgba(239,68,68,.14);color:var(--dan);border-color:rgba(239,68,68,.4);}
-.win-head .hint{margin-left:auto;font-size:11px;}
 .note b{color:var(--t-1);}
 .hintlink{color:var(--pri);cursor:pointer;font-weight:bold;}
 
@@ -240,182 +256,102 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
 
     <div id="main">
 
-      <!-- ========== 页1 总览（风险结论先行） ========== -->
+      <!-- ========== 页1 总览（16:9 单屏，不可滚动） ========== -->
       <div class="page on" id="pg-ov">
-        <div class="rating-band lv-2">
+        <div class="rating-band lv-2" id="ovBand">
           <div class="icon">!</div>
-          <div class="lv">L2</div>
+          <div class="lv" id="ovBandLv">L2</div>
           <div>
-            <div class="ttl">肺机械暴露累积偏高，正在恶化</div>
-            <div class="sub">MP 越限 + ΔP 逼近阈值 · 建议 1h 内评估 VT / RR / PEEP</div>
+            <div class="ttl" id="ovBandTtl">肺机械暴露累积偏高，正在恶化</div>
+            <div class="sub" id="ovBandSub">MP 越限 + ΔP 逼近阈值 · 建议 1h 内评估 VT / RR / PEEP</div>
           </div>
-          <div class="pills">
-            <span>越限 <b>2</b></span>
-            <span>复评 <b>1</b></span>
-            <span>安全 <b>1</b></span>
+          <div class="pills" id="ovBandPills">
+            <span>越限 <b>2</b></span><span>复评 <b>1</b></span><span>安全 <b>1</b></span>
           </div>
         </div>
 
-        <!-- URS 07-1：累积剂量计双环表 + 右侧信息区（瞬时值 / 顺应性分层 / 累积暴露 / 24h 窗口） -->
-        <div class="card" id="doseCard" style="margin-bottom:14px;">
-          <h3>累积剂量计 · 双环暴露表
-            <span class="hint" style="margin-left:auto;">URS 07-1｜外环 ΔP、内环 MP｜满环 = 本层 L4 危险阈值</span>
+        <!-- 行1：ΔP 累积暴露监测 -->
+        <div class="card exp-card" id="dpExpCard" style="margin-bottom:10px;">
+          <h3>ΔP 累积暴露监测
+            <span style="font-weight:normal;font-size:11px;color:var(--t-3);">气道驱动压 Pplat − PEEP</span>
+            <span class="badge" id="dpExpBadge" style="margin-left:8px;">--</span>
+            <span class="dyn-tag" id="dpExpDyn" hidden>*Dyn*</span>
+            <span class="hint" style="margin-left:auto;">单位 cmH₂O｜阈值随顺应性分层判定</span>
           </h3>
-          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;">
-            <!-- 左：双环表 + 环图图例 -->
-            <div style="flex:1 1 320px;min-width:290px;">
-              <div style="display:flex;justify-content:center;">
-                <svg id="doseGauge" width="100%" height="270" viewBox="0 0 320 270" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="exp-grid">
+            <div class="exp-left">
+              <div class="seg" id="dpExpWin" style="margin-bottom:6px;">
+                <button class="btn" data-w="1">1小时</button><button class="btn on" data-w="6">6小时</button><button class="btn" data-w="24">24小时</button>
               </div>
-              <div style="font-size:12px;color:var(--t-2);line-height:1.8;margin-top:2px;">
-                <div style="display:flex;justify-content:space-between;"><span>外环 ΔP TAT</span><b style="color:var(--t-1)"><span id="doseDpTat">--</span> h / 满环 <span id="doseDpFull">6.0</span> h</b></div>
-                <div style="display:flex;justify-content:space-between;"><span>内环 MP TAT</span><b style="color:var(--t-1)"><span id="doseMpTat">--</span> h / 满环 <span id="doseMpFull">--</span> h</b></div>
-                <div style="display:flex;justify-content:space-between;"><span>ΔP AUC</span><b style="color:var(--t-1)"><span id="doseDpAuc">--</span> cmH₂O·h</b></div>
-                <div style="display:flex;justify-content:space-between;"><span>MP AUC</span><b style="color:var(--t-1)"><span id="doseMpAuc">--</span> J·h/min</b></div>
-                <div id="doseNote" style="margin-top:4px;color:var(--t-3);font-size:11.5px;">四色：绿 &lt;50% · 黄 50–75% · 橙 75–100% · 红 ≥100%（已达 L4 危险量）</div>
-              </div>
+              <svg id="dpExpChart" width="100%" height="150"></svg>
             </div>
-
-            <!-- 右：瞬时值 / 顺应性分层 / 累积暴露 / 24h 窗口 -->
-            <div style="flex:2 1 560px;min-width:320px;display:flex;flex-direction:column;gap:10px;">
-              <!-- 瞬时值紧凑区 -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <div style="flex:1 1 150px;background:var(--bg-1);border:1px solid var(--line);border-radius:8px;padding:8px 12px;">
-                  <div style="font-size:11.5px;color:var(--t-2);">瞬时 ΔP <span style="color:var(--t-3)">cmH₂O · 阈值15</span><span class="dyn-tag" id="dpLiveDyn" hidden>*Dyn*</span></div>
-                  <div style="display:flex;align-items:baseline;gap:6px;">
-                    <span id="dpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--watch)">—</span>
-                    <span id="dpCardBadge" class="badge b-watch" style="font-size:10px;padding:2px 8px">关 注</span>
-                  </div>
-                </div>
-                <div style="flex:1 1 150px;background:var(--bg-1);border:1px solid var(--line);border-radius:8px;padding:8px 12px;">
-                  <div style="font-size:11.5px;color:var(--t-2);">瞬时 MP <span style="color:var(--t-3)">J/min · 阈值17</span><span class="dyn-tag" id="mpLiveDyn" hidden>*Dyn*</span></div>
-                  <div style="display:flex;align-items:baseline;gap:6px;">
-                    <span id="mpInstant" style="font-size:26px;font-weight:800;line-height:1.1;color:var(--warn)">—</span>
-                    <span id="mpCardBadge" class="badge b-warn" style="font-size:10px;padding:2px 8px">偏 高</span>
-                  </div>
-                </div>
+            <div class="exp-right">
+              <div class="exp-metrics">
+                <div class="pcell"><div class="k">TAT 高暴露时长</div><div class="v" id="dpExpTat">-- <small>h</small></div></div>
+                <div class="pcell"><div class="k">AUC 超阈累积</div><div class="v" id="dpExpAuc">-- <small>cmH₂O·h</small></div></div>
+                <div class="pcell"><div class="k">PTA 高暴露占比</div><div class="v" id="dpExpPta">-- <small>%</small></div></div>
               </div>
-
-              <!-- URS 07-3：顺应性分层 -->
-              <div id="cmpCard" class="win-block" style="margin-top:0;">
-                <div class="win-head" style="margin-bottom:6px;">
-                  <b>顺应性分层</b>
-                  <span class="badge" id="cmpGroup">--</span>
-                  <span class="hint" style="margin-left:auto;">URS 07-3｜分层决定 MP 安全上限</span>
-                </div>
-                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-                  <div class="pcell"><div class="k">C<sub>RS</sub> 呼吸系统顺应性</div><div class="v" id="cmpCrs">-- <small>mL/cmH₂O</small></div></div>
-                  <div class="pcell"><div class="k">分层分界值</div><div class="v" id="cmpThr">32.7 <small>mL/cmH₂O</small></div></div>
-                  <div class="pcell"><div class="k">本层 MP 安全上限</div><div class="v" id="cmpMpLimit">-- <small>J/min</small></div></div>
-                  <div class="pcell"><div class="k">本层高暴露 L3 / L4</div><div class="v" id="cmpTatLimit">-- <small>h</small></div></div>
-                </div>
-              </div>
-
-              <!-- 累积暴露（通气全程） -->
-              <div class="win-block" style="margin-top:0;">
-                <div class="win-head" style="margin-bottom:6px;">
-                  <b>累积暴露（通气全程）</b>
-                  <span class="hint" style="margin-left:auto;" id="cumPending">⚠ 阈值待临床确认，可在「设置」中随时调整</span>
-                </div>
-                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-                  <div class="pcell"><div class="k">ΔP 高暴露时长 <span class="dyn-tag" id="cumDpDyn" title="平台压不可信，已降级为动态口径 ΔP=Ppeak−PEEP" hidden>*Dyn*</span></div><div class="v" id="cumDpOver">-- <small>h</small></div></div>
-                  <div class="pcell"><div class="k">MP 高暴露时长 <span class="dyn-tag" id="cumMpDyn" title="平台压不可信，已降级为动态公式 0.098·RR·Vt·0.5·(Ppeak+PEEP)" hidden>*Dyn*</span></div><div class="v" id="cumMpOver">-- <small>h</small></div></div>
-                  <div class="pcell"><div class="k">ΔP 超阈 AUC</div><div class="v" id="cumDpAuc">-- <small>cmH₂O·h</small></div></div>
-                  <div class="pcell"><div class="k">MP 超阈 AUC</div><div class="v" id="cumMpAuc">-- <small>J·h/min</small></div></div>
-                </div>
-                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-top:8px;">
-                  <div class="pcell"><div class="k">高暴露占比 PTA</div><div class="v" id="cumPta">-- <small>%</small></div></div>
-                  <div class="pcell"><div class="k">有效通气时长</div><div class="v" id="cumVentDur">-- <small>min</small></div></div>
-                  <div class="pcell"><div class="k">数据断流</div><div class="v" id="cumGap">-- <small>min</small></div></div>
-                  <div class="pcell"><div class="k">累积机械能</div><div class="v" id="cumEnergy">-- <small>kJ</small></div></div>
-                </div>
-              </div>
-
-              <!-- 24h 滚动窗口口径：URS G0~G3 判据均为 "x h/24h" -->
-              <div class="win-block" style="margin-top:0;">
-                <div class="win-head" style="margin-bottom:6px;">
-                  <b>24h 滚动窗口</b>
-                  <span id="winDcr" class="dcr-chip">DCR --</span>
-                  <span class="hint" id="winHint"></span>
-                </div>
-                <div class="param-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-                  <div class="pcell"><div class="k">ΔP TAT /24h</div><div class="v" id="winDpTat">-- <small>h</small></div></div>
-                  <div class="pcell"><div class="k">MP TAT(≥17) /24h</div><div class="v" id="winMpTat">-- <small>h</small></div></div>
-                  <div class="pcell"><div class="k">ΔP AUC /24h</div><div class="v" id="winDpAuc">-- <small>cmH₂O·h</small></div></div>
-                  <div class="pcell"><div class="k">MP AUC(≥17) /24h</div><div class="v" id="winMpAuc">-- <small>J·h/min</small></div></div>
-                </div>
-              </div>
-
-              <div class="note" style="margin:0;">
-                累积维度风险：<b id="cumRiskText">L1 正常</b>　·　顺应性分层：<b id="cumStratum">--</b>（CRS=<span id="cumComp">--</span> mL/cmH₂O，分界 32.7）　·　评级 = max(瞬时单值维度, 累积暴露维度)
-                <span id="cmpNote" style="display:block;margin-top:4px;">分层口径：C<sub>RS</sub> 按有效通气时长加权滚动，与 24h 窗口同口径；分层仅影响 MP 轨道阈值，ΔP 轨道恒用 15 cmH₂O。</span>
-                <span style="color:var(--t-3)">有效通气时长按「相邻有效上报批次的时间跨度」累计，间隔 ≤4h 前向填充计入、&gt;4h 记为数据断流并暂停积分。</span>
+              <div class="exp-progress" id="dpExpProg"></div>
+              <div class="exp-concl">
+                <div class="ec-hint" id="dpExpHint">--</div>
+                <div class="ec-advice" id="dpExpAdvice">--</div>
+                <div class="ec-basis" id="dpExpBasis">--</div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 实时新鲜度条：设备一上报即秒级刷新（方案A） -->
-        <div class="live-fresh" id="liveFresh" style="margin:-4px 0 14px;font-size:12.5px;color:var(--t-3);display:flex;gap:12px;align-items:center;">
-          <span id="liveDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--t-3);box-shadow:0 0 0 3px rgba(127,127,127,.15);"></span>
-          <span id="liveText">实时链路初始化中…</span>
+        <!-- 行2：MP 累积暴露监测 -->
+        <div class="card exp-card" id="mpExpCard" style="margin-bottom:10px;">
+          <h3>MP 累积暴露监测
+            <span style="font-weight:normal;font-size:11px;color:var(--t-3);">气道机械功率 Gattinoni 公式</span>
+            <span class="badge" id="mpExpBadge" style="margin-left:8px;">--</span>
+            <span class="dyn-tag" id="mpExpDyn" hidden>*Dyn*</span>
+            <span class="hint" style="margin-left:auto;">单位 J/min｜MP 安全上限随顺应性分层（高18/低20）</span>
+          </h3>
+          <div class="exp-grid">
+            <div class="exp-left">
+              <div class="seg" id="mpExpWin" style="margin-bottom:6px;">
+                <button class="btn" data-w="1">1小时</button><button class="btn on" data-w="6">6小时</button><button class="btn" data-w="24">24小时</button>
+              </div>
+              <svg id="mpExpChart" width="100%" height="150"></svg>
+            </div>
+            <div class="exp-right">
+              <div class="exp-metrics">
+                <div class="pcell"><div class="k">TAT 高暴露时长</div><div class="v" id="mpExpTat">-- <small>h</small></div></div>
+                <div class="pcell"><div class="k">AUC 超阈累积</div><div class="v" id="mpExpAuc">-- <small>J·h/min</small></div></div>
+                <div class="pcell"><div class="k">PTA 高暴露占比</div><div class="v" id="mpExpPta">-- <small>%</small></div></div>
+              </div>
+              <div class="exp-progress" id="mpExpProg"></div>
+              <div class="exp-concl">
+                <div class="ec-hint" id="mpExpHint">--</div>
+                <div class="ec-advice" id="mpExpAdvice">--</div>
+                <div class="ec-basis" id="mpExpBasis">--</div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="card band-card">
-          <h3>24h 风险分级时间带
+        <!-- 保留：24h 风险分级时间带 -->
+        <div class="card band-card" style="padding:8px 12px;">
+          <h3 style="margin-bottom:5px;">24h 风险分级时间带
             <span class="legend">
               <span><i style="background:var(--ok)"></i>低风险</span><span><i style="background:var(--watch)"></i>关注</span><span><i style="background:var(--warn)"></i>累积偏高</span><span><i style="background:var(--dan)"></i>高风险</span><span><i style="background:var(--t-4)"></i>无数据</span>
             </span>
-            <span class="hint" style="margin-left:auto;">整体评级 = 实时单值 + 累积暴露 双维度合并；下方色带为逐分钟单值历史</span>
+            <span class="hint" style="margin-left:auto;">评级 = 实时单值 + 累积暴露 双维度合并；下方色带为逐分钟单值历史</span>
           </h3>
-          <svg id="riskBand" width="100%" height="60"></svg>
+          <svg id="riskBand" width="100%" height="44"></svg>
         </div>
 
-        <div class="card">
-          <h3>通气参数快照
+        <!-- 保留：通气参数快照 -->
+        <div class="card" style="padding:8px 12px;margin-top:10px;">
+          <h3 style="margin-bottom:6px;">通气参数快照
             <span class="hintlink" style="margin-left:auto;" onclick="gotoPage('st')">适用范围与局限 ›</span></h3>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;">
+          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);gap:8px;">
             <div class="pcell"><div class="k">模式 / VT</div><div class="v"><span id="snapMode">--</span> <small id="snapVt">-- mL</small></div></div>
             <div class="pcell"><div class="k">RR / PEEP</div><div class="v"><span id="snapRR">--</span> <small>/min</small>　<span id="snapPeep">--</span> <small>cmH₂O</small></div></div>
             <div class="pcell"><div class="k">PIP / Pplat</div><div class="v"><span id="snapPip">--</span> <small>cmH₂O</small> / <span id="snapPplat">--</span> <small>cmH₂O</small></div></div>
             <div class="pcell"><div class="k">FiO₂</div><div class="v"><span id="snapFio2">--</span><small>%</small></div></div>
-          </div>
-          <div class="note">⚠ <b>气道版本局限</b>：气道 ΔP / MP 包含胸壁因素，肥胖、腹高压、胸壁僵硬患者可能<b>高估或低估</b>真实肺应力与能量负荷。</div>
-        </div>
-
-        <!-- URS 07-4：班次导出与交接班摘要 -->
-        <div class="card" id="shiftCard">
-          <h3>交接班摘要 · 临床力学交接单
-            <span class="hint" style="margin-left:auto;">URS 07-4｜服务端口径（与 G0-G3 判级一致）</span>
-          </h3>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-            <div class="seg" id="shiftWin">
-              <button class="btn" data-h="8">8 小时</button>
-              <button class="btn on" data-h="12">12 小时</button>
-              <button class="btn" data-h="24">24 小时</button>
-            </div>
-            <button class="btn" id="shiftExport" style="margin-left:auto;">导出交接单 CSV</button>
-          </div>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
-            <div class="pcell"><div class="k">本班最高 ΔP</div><div class="v" id="shDpMax">-- <small>cmH₂O</small></div></div>
-            <div class="pcell"><div class="k">本班最高 MP</div><div class="v" id="shMpMax">-- <small>J/min</small></div></div>
-            <div class="pcell"><div class="k">超标总时长 ΔP≥15</div><div class="v" id="shDpTat">-- <small>h</small></div></div>
-            <div class="pcell"><div class="k">超标总时长 MP≥17</div><div class="v" id="shMpTat">-- <small>h</small></div></div>
-          </div>
-          <div class="param-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
-            <div class="pcell"><div class="k">ΔP AUC 增量</div><div class="v" id="shDpAuc">-- <small>cmH₂O·h</small></div></div>
-            <div class="pcell"><div class="k">MP AUC 增量</div><div class="v" id="shMpAuc">-- <small>J·h/min</small></div></div>
-            <div class="pcell"><div class="k">趋势斜率方向</div><div class="v" id="shSlope">--</div></div>
-            <div class="pcell"><div class="k">预警 / 已确认</div><div class="v" id="shAlerts">--</div></div>
-          </div>
-          <div id="shMeta" style="font-size:11.5px;color:var(--t-3);line-height:1.7;"></div>
-        </div>
-
-        <!-- P1：免责声明（NFR-03）常驻 -->
-        <div class="card" style="border-left:4px solid var(--watch);">
-          <div style="font-size:12.5px;color:var(--t-2);line-height:1.75;">
-            <b style="color:var(--t-1)">免责声明（NFR-03）</b>　本系统提供暴露累积剂量与趋势统计，<b>仅供临床诊疗决策参考，不作为调整通气参数的唯一依据</b>；
-            临床干预需结合血气分析与患者全身病情综合评估。
           </div>
         </div>
       </div>
@@ -1003,131 +939,6 @@ function drawGauge(svgId, val, th, lo, hi, unit){
   svg.appendChild(txt(cx+r+sw/2, cy+16, hi, {'font-size':9.5,fill:'#7C8694','text-anchor':'middle'}));
 }
 
-// ── URS 07-1：累积剂量计双环表 ──
-// 外环 = ΔP 累积剂量，内环 = MP 累积剂量；满环按「本层 L4 危险阈值」小时数（用户选项①A）
-//   ΔP：CUM_DP_OVER_HOURS_L4 = 6h
-//   MP：高顺应性 6h / 低顺应性 24h（依 CRS 分层）
-// 四色：绿<50% 黄50-75% 橙75-100% 红>=100%
-var DOSE_COLORS = ['#22C55E','#EAB308','#F97316','#EF4444'];
-function doseRatio(tat, full){
-  if(tat==null || !full || full<=0) return null;
-  var r = (+tat)/(+full);
-  return Math.max(0, Math.min(1.25, r));   // 允许超满环 25% 以显示"已超 L4"
-}
-function doseColor(ratio){
-  if(ratio==null) return '#5F6672';
-  if(ratio>=1.0) return DOSE_COLORS[3];
-  if(ratio>=0.75) return DOSE_COLORS[2];
-  if(ratio>=0.5) return DOSE_COLORS[1];
-  return DOSE_COLORS[0];
-}
-// 画一段圆弧：t 为「占满环比例」(0~1.25)。表盘从左下 225° 顺时针经顶部扫 270° 到右下。
-// 统一用参数化比例换算角度，避免大弧/小弧标志与扫向判断出错（此前走下方短弧导致碎块）。
-var DOSE_START_DEG = 225, DOSE_SWEEP_DEG = 270;
-function dosePt(cx, cy, r, t){
-  var a = (DOSE_START_DEG - DOSE_SWEEP_DEG*t) * Math.PI/180;
-  return [cx + r*Math.cos(a), cy - r*Math.sin(a)];
-}
-function doseArcPath(cx, cy, r, t0, t1){
-  if(t1 - t0 < 0.004) return '';
-  var p0=dosePt(cx,cy,r,t0), p1=dosePt(cx,cy,r,t1);
-  var large = (DOSE_SWEEP_DEG*(t1-t0)) > 180 ? 1 : 0;
-  return 'M'+p0[0].toFixed(2)+' '+p0[1].toFixed(2)+' A'+r+' '+r+' 0 '+large+' 1 '+p1[0].toFixed(2)+' '+p1[1].toFixed(2);
-}
-function drawDosimeter(dpTat, dpFull, mpTat, mpFull){
-  var svg=document.getElementById('doseGauge'); if(!svg) return;
-  svg.innerHTML='';
-  var W=320, H=270, cx=W/2, cy=H/2+6;
-  var rOut=112, rIn=80, sw=22;
-  function angAt(ratio){ return Math.max(0, Math.min(1.25, ratio==null?0:ratio)); }
-
-  // 底槽（0→1 = 270° 满环；>1 为「超 L4」外溢区，不画底槽）
-  [rOut,rIn].forEach(function(r){
-    svg.appendChild(el('path',{d:doseArcPath(cx,cy,r,0,1),fill:'none',stroke:'rgba(255,255,255,.07)','stroke-width':sw,'stroke-linecap':'round'}));
-  });
-  // 四色分段底纹（按满环比例 0-50/50-75/75-100/100+）
-  var segs=[[0,0.5,0],[0.5,0.75,1],[0.75,1.0,2],[1.0,1.25,3]];
-  [rOut,rIn].forEach(function(r){
-    segs.forEach(function(s){
-      var d=doseArcPath(cx,cy,r,angAt(s[0]),angAt(s[1]));
-      if(d) svg.appendChild(el('path',{d:d,fill:'none',
-        stroke:DOSE_COLORS[s[2]],'stroke-width':sw,opacity:.13}));
-    });
-  });
-
-  var ratios = [doseRatio(dpTat,dpFull), doseRatio(mpTat,mpFull)];
-  var radii  = [rOut, rIn];
-  ratios.forEach(function(rt, i){
-    if(rt==null) return;
-    var c = doseColor(rt);
-    var d=doseArcPath(cx,cy,radii[i],0,angAt(rt));
-    if(d) svg.appendChild(el('path',{d:d,fill:'none',
-      stroke:c,'stroke-width':sw,'stroke-linecap':'round',opacity:.95}));
-  });
-
-  // 起点/终点刻度提示
-  svg.appendChild(txt(34, H-8, '0h', {'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
-  svg.appendChild(txt(W-34, H-8, 'L4', {'font-size':10,fill:'#7C8694','text-anchor':'middle'}));
-
-  // 中央：当日累计 TAT + AUC（URS：中央显示 TAT 小时与 AUC 绝对值）
-  var dpPct = ratios[0]==null ? null : Math.round(ratios[0]*100);
-  var mpPct = ratios[1]==null ? null : Math.round(ratios[1]*100);
-  svg.appendChild(txt(cx, cy-30, '累计 TAT', {'font-size':11, fill:'#7C8694','text-anchor':'middle'}));
-  svg.appendChild(txt(cx, cy-6, (dpTat!=null?(+dpTat).toFixed(1):'—'), {'font-size':26,'font-weight':800,fill:doseColor(ratios[0]),'text-anchor':'middle'}));
-  svg.appendChild(txt(cx, cy+10, 'ΔP 小时（外环）', {'font-size':10.5,fill:'#7C8694','text-anchor':'middle'}));
-  svg.appendChild(txt(cx, cy+34, (mpTat!=null?(+mpTat).toFixed(1):'—'), {'font-size':20,'font-weight':800,fill:doseColor(ratios[1]),'text-anchor':'middle'}));
-  svg.appendChild(txt(cx, cy+48, 'MP 小时（内环）', {'font-size':10.5,fill:'#7C8694','text-anchor':'middle'}));
-
-  // 底部一行百分比（避免悬浮错位）
-  svg.appendChild(txt(cx, H-8, 'ΔP '+(dpPct==null?'—':dpPct+'%')+'　·　MP '+(mpPct==null?'—':mpPct+'%'),
-    {'font-size':11,'font-weight':600,fill:'#9AA3B0','text-anchor':'middle'}));
-}
-
-// 总览瞬时值：优先用 overview 当前值，回退到趋势末点；并驱动双环剂量计
-function drawOverviewGauges(){
-  var dpVal = (ovData && ovData.dp && ovData.dp.current!=null) ? ovData.dp.current
-            : (N>0 ? data[N-1].dp : null);
-  var mpVal = (ovData && ovData.mp && ovData.mp.current!=null) ? ovData.mp.current
-            : (N>0 ? data[N-1].mp : null);
-
-  // ── 瞬时值紧凑数字卡（替换原半圆表）──
-  var dpEl=document.getElementById('dpInstant'), mpEl=document.getElementById('mpInstant');
-  if(dpEl){
-    dpEl.textContent = (dpVal==null||isNaN(dpVal)) ? '—' : (+dpVal).toFixed(1);
-    dpEl.style.color = RISK_C[gaugeLevel(dpVal==null?0:dpVal, TH.dp, TH.dp*2)];
-  }
-  if(mpEl){
-    mpEl.textContent = (mpVal==null||isNaN(mpVal)) ? '—' : (+mpVal).toFixed(2);
-    mpEl.style.color = RISK_C[gaugeLevel(mpVal==null?0:mpVal, TH.mp, TH.mp*2)];
-  }
-
-  // ── 双环累积剂量计 ──
-  var w = (ovData && ovData.cumulative && ovData.cumulative.window) ? ovData.cumulative.window : null;
-  var dpTat = w ? (w.dp_tat_hours!=null ? w.dp_tat_hours : null) : null;
-  var mpTat = w ? (w.mp_tat_hours!=null ? (typeof w.mp_tat_hours==='object' ? w.mp_tat_hours.mp17 : w.mp_tat_hours) : null) : null;
-  var dpAuc = w ? (w.dp_auc_h!=null ? w.dp_auc_h : null) : null;
-  var mpAuc = w ? (w.mp_auc_h!=null ? (typeof w.mp_auc_h==='object' ? w.mp_auc_h.mp17 : w.mp_auc_h) : null) : null;
-
-  // 满环 = 本层 L4 阈值（用户选项①A）
-  var dpFull = CUM && CUM.dpOverH4!=null ? CUM.dpOverH4 : 6;
-  var stratum = (anGradeCache && anGradeCache.stratum) ? anGradeCache.stratum : null;
-  var mpFull = stratum==='low' ? (CUM&&CUM.mpLowH4!=null?CUM.mpLowH4:24)
-                               : (CUM&&CUM.mpHighH4!=null?CUM.mpHighH4:6);
-
-  drawDosimeter(dpTat, dpFull, mpTat, mpFull);
-
-  var setTxt=function(id,v,suffix){
-    var e=document.getElementById(id); if(!e) return;
-    e.textContent = (v==null||isNaN(v)) ? '--' : ((+v).toFixed(2)) + (suffix||'');
-  };
-  setTxt('doseDpTat', dpTat, '');
-  setTxt('doseMpTat', mpTat, '');
-  setTxt('doseDpAuc', dpAuc, '');
-  setTxt('doseMpAuc', mpAuc, '');
-  var f1=document.getElementById('doseDpFull'); if(f1) f1.textContent=(+dpFull).toFixed(1);
-  var f2=document.getElementById('doseMpFull'); if(f2) f2.textContent=(+mpFull).toFixed(1);
-}
-
 // ==================== Drawing: Risk Band ====================
 // 以「真实时间戳」锚定 24h 窗口：每个上报分钟按各自时间落点；
 // 时间刻度标注真实 UTC 时钟，避免旧版按索引等分（假设 1440 点）导致的错位。
@@ -1367,7 +1178,6 @@ function renderMp(win){
   svg.appendChild(txt(W-R,Tp+11,hi.toFixed(1)+' kJ',{'font-size':10,fill:'#A855F7','text-anchor':'end','font-weight':'bold'}));
 }
 function renderAll(){
-  drawOverviewGauges();
   drawRiskBand();
   drawRiskMap('rmBig','rmTip',860,520,true);
   renderDp(curWin.dp); renderMp(curWin.mp);
@@ -1381,7 +1191,7 @@ function gotoPage(pg){
   if(pg==='mp') renderMp(curWin.mp);
   if(pg==='rm') drawRiskMap('rmBig','rmTip',860,520,true);
   if(pg==='ov'){
-    drawOverviewGauges(); drawRiskBand();
+    drawRiskBand();
   }
 }
 
@@ -1389,12 +1199,6 @@ function gotoPage(pg){
 document.querySelectorAll('.navitem').forEach(function(n){ n.addEventListener('click',function(){ gotoPage(n.dataset.page); }); });
 document.getElementById('dpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');}); e.target.classList.add('on'); curWin.dp=+e.target.dataset.w; renderDp(curWin.dp);} });
 document.getElementById('mpWin').addEventListener('click',function(e){ if(e.target.dataset.w){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');}); e.target.classList.add('on'); curWin.mp=+e.target.dataset.w; renderMp(curWin.mp);} });
-// URS 07-4：交接班窗口切换 + 导出
-document.getElementById('shiftWin').addEventListener('click',function(e){
-  if(e.target.dataset.h){ [].forEach.call(this.querySelectorAll('.btn'),function(b){ b.classList.remove('on');});
-    e.target.classList.add('on'); shiftHours=+e.target.dataset.h; loadShiftSummary(); }
-});
-document.getElementById('shiftExport').addEventListener('click', exportShiftCsv);
 
 // ==================== Threshold Settings ====================
 var sldDp=document.getElementById('sldDp'), sldMp=document.getElementById('sldMp');
@@ -1556,7 +1360,7 @@ async function fetchOverview(){
     ovData = await r.json();
     updateOverviewUI(ovData);
     loadAnalysis();
-    loadShiftSummary();
+    loadExposureCards();
   } catch(e) { console.error('fetchOverview error:', e); }
 }
 
@@ -1592,88 +1396,175 @@ async function loadAnalysis(){
     }
     renderSlopeTable('anDpSlope', d.slope&&d.slope.dp);
     renderSlopeTable('anMpSlope', d.slope&&d.slope.mp);
-    renderComplianceCard(g);
-    drawOverviewGauges();             // 分层更新后重算双环满量程
     if(d.cusum){ cusumCache = d.cusum; redrawTrends(); }   // URS 07-2 漂移旗标
   } catch(e){ console.error('loadAnalysis error:', e); }
 }
 
-// ── URS 07-4：交接班摘要 ──
-var shiftHours = 12;
-var shiftCache = null;
-async function loadShiftSummary(){
+// ==================== 总览：累积暴露监测卡（ΔP / MP） ====================
+// 后端 /api/exposure-summary 按顺应性分层给出阈值与风险结论；前端只渲染。
+var expWin = { dp: 6, mp: 6 };
+var expCache = { dp: null, mp: null };
+
+function loadExposureCards(){ loadExposureCard('dp'); loadExposureCard('mp'); }
+
+async function loadExposureCard(param){
   try{
-    var r = await fetch(API + '/api/shift-summary?hours=' + shiftHours);
+    var h = expWin[param] || 6;
+    var r = await fetch(API + '/api/exposure-summary?param=' + param + '&hours=' + h);
     var d = await r.json();
-    if(d.error){ var m=document.getElementById('shMeta'); if(m) m.textContent='暂无数据（'+(d.error||'')+'）'; return; }
-    shiftCache = d;
-    var set=function(id,v,suf,dec){
+    if(d.error){ return; }
+    expCache[param] = d;
+    var P = param === 'dp' ? 'dpExp' : 'mpExp';
+    var unitAuc = param === 'dp' ? 'cmH₂O·h' : 'J·h/min';
+    var unitVal = param === 'dp' ? 'cmH₂O' : 'J/min';
+
+    var m = d.metrics || {}, c = d.conclusion || {}, L = d.limits || {};
+    var setV = function(id, v, suf, dec){
       var e=document.getElementById(id); if(!e) return;
-      e.innerHTML = (v==null||isNaN(v)) ? '--' : ((+v).toFixed(dec==null?2:dec)) + (suf?' <small>'+suf+'</small>':'');
+      e.innerHTML = (v==null||isNaN(v)) ? '--' : (+v).toFixed(dec==null?2:dec) + (suf?' <small>'+suf+'</small>':'');
     };
-    var pk=d.peak||{}, tt=d.tat||{}, au=d.auc||{}, sd=d.slope_direction||{}, al=d.alerts||{};
-    set('shDpMax', pk.dp_max, 'cmH₂O', 1);
-    set('shMpMax', pk.mp_max, 'J/min', 2);
-    set('shDpTat', tt.dp_hours, 'h', 2);
-    set('shMpTat', (tt.mp_hours && tt.mp_hours.mp17!=null) ? tt.mp_hours.mp17 : null, 'h', 2);
-    set('shDpAuc', au.dp_auc_h, 'cmH₂O·h', 2);
-    set('shMpAuc', (au.mp_auc_h && au.mp_auc_h.mp17!=null) ? au.mp_auc_h.mp17 : null, 'J·h/min', 2);
+    setV(P+'Tat', m.tat_h, 'h', 2);
+    setV(P+'Auc', m.auc, unitAuc, 2);
+    setV(P+'Pta', m.pta, '%', 1);
 
-    var sl=document.getElementById('shSlope');
-    if(sl){
-      var up=(sd.dp==='上升'), dn=(sd.dp==='下降');
-      sl.innerHTML = 'ΔP '+sd.dp+'　MP '+sd.mp;
-      sl.style.color = up ? 'var(--danger)' : (dn ? 'var(--ok)' : 'var(--t-2)');
-    }
-    var al2=document.getElementById('shAlerts');
-    if(al2) al2.innerHTML = (al.count||0) + ' / ' + (al.acknowledged||0) + ' <small>条已确认</small>';
+    // 徽章 + 结论卡配色按级别
+    var LV = {0:'b-ok',1:'b-watch',2:'b-warn',3:'b-dan'};
+    var LC = {0:'var(--ok)',1:'var(--watch)',2:'var(--warn)',3:'var(--dan)'};
+    var lv = c.level==null ? 0 : c.level;
+    var badge = document.getElementById(P+'Badge');
+    if(badge){ badge.textContent = (c.label||('L'+lv)); badge.className = 'badge ' + (LV[lv]||'b-ok'); }
+    var concl = document.getElementById(P+'Concl');
+    if(concl) concl.style.borderLeftColor = LC[lv]||'var(--t-4)';
+    var hint = document.getElementById(P+'Hint');
+    if(hint){ hint.textContent = c.hint||'--'; hint.style.color = LC[lv]||'var(--t-1)'; }
+    var adv = document.getElementById(P+'Advice'); if(adv) adv.textContent = c.advice ? ('建议：'+c.advice) : '--';
+    var bas = document.getElementById(P+'Basis'); if(bas) bas.textContent = c.basis ? ('依据：'+c.basis) : '--';
 
-    var m=document.getElementById('shMeta');
-    if(m){
-      m.innerHTML = '窗口：'+(d.window_start_iso||'').slice(0,16).replace('T',' ')+' → '+(d.window_end_iso||'').slice(0,16).replace('T',' ')
-        +'　·　通气 '+(d.vent_hours!=null?d.vent_hours:'--')+' h　·　断流 '+(d.gap_minutes!=null?d.gap_minutes:'--')+' min'
-        +'　·　DCR '+(d.dcr!=null?d.dcr:'--')+'%'
-        +'　·　C<sub>RS</sub> '+(d.compliance_mean!=null?d.compliance_mean:'--')
-        +'（'+(d.compliance_stratum==='high'?'高顺应性':'低顺应性')+'）';
-    }
-  }catch(e){ console.error('loadShiftSummary error:', e); }
+    // 动态口径标记（ΔP 降级为 dynamic 来源时提示）
+    var dyn = document.getElementById(P+'Dyn');
+    if(dyn) dyn.hidden = !(param==='dp' && ovData && ovData.dp && ovData.dp.source==='dynamic');
+
+    renderExpProgress(P, m, L, param);
+    drawExpChart(P, d.series||[], L.instant_thr, param, unitVal, c.level);
+  }catch(e){ console.error('loadExposureCard '+param+' error:', e); }
 }
 
-// 导出交接班摘要为 CSV（含汇总头 + 预警明细）
-function exportShiftCsv(){
-  if(!shiftCache){ toast('暂无交接班数据可导出'); return; }
-  var d=shiftCache, L=[];
-  L.push('肺保护驾驶舱 · 临床力学交接单');
-  L.push('设备,'+d.device+',班次时长(h),'+d.hours);
-  L.push('窗口起,'+(d.window_start_iso||'')+',窗口止,'+(d.window_end_iso||''));
-  L.push('');
-  L.push('指标,数值,单位');
-  L.push('最高 ΔP,'+(d.peak&&d.peak.dp_max!=null?d.peak.dp_max:'')+',cmH2O');
-  L.push('最高 MP,'+(d.peak&&d.peak.mp_max!=null?d.peak.mp_max:'')+',J/min');
-  L.push('ΔP 超标总时长,'+(d.tat&&d.tat.dp_hours!=null?d.tat.dp_hours:'')+',h');
-  L.push('MP 超标总时长(≥17),'+(d.tat&&d.tat.mp_hours&&d.tat.mp_hours.mp17!=null?d.tat.mp_hours.mp17:'')+',h');
-  L.push('ΔP AUC 增量,'+(d.auc&&d.auc.dp_auc_h!=null?d.auc.dp_auc_h:'')+',cmH2O·h');
-  L.push('MP AUC 增量(≥17),'+(d.auc&&d.auc.mp_auc_h&&d.auc.mp_auc_h.mp17!=null?d.auc.mp_auc_h.mp17:'')+',J·h/min');
-  L.push('通气时长,'+(d.vent_hours!=null?d.vent_hours:'')+',h');
-  L.push('断流时长,'+(d.gap_minutes!=null?d.gap_minutes:'')+',min');
-  L.push('数据完整率 DCR,'+(d.dcr!=null?d.dcr:'')+',%');
-  L.push('CRS,'+(d.compliance_mean!=null?d.compliance_mean:'')+',mL/cmH2O');
-  L.push('顺应性分层,'+(d.compliance_stratum==='high'?'高顺应性肺/剂量敏感型':'低顺应性肺/窄带耐受型'));
-  L.push('ΔP 趋势方向,'+(d.slope_direction&&d.slope_direction.dp||''));
-  L.push('MP 趋势方向,'+(d.slope_direction&&d.slope_direction.mp||''));
-  L.push('');
-  var al=d.alerts||{};
-  L.push('预警总数,'+(al.count||0)+',已确认,'+(al.acknowledged||0));
-  L.push('时间,等级,类别,消息,状态');
-  (al.items||[]).forEach(function(a){
-    var t=a.ts_iso||(a.ts?new Date(a.ts).toISOString():'');
-    var st=a.acknowledged?('已确认'+(a.acknowledged_by?('·'+a.acknowledged_by):'')):(a.active?'活动中':'已恢复');
-    L.push([t,a.risk_level||'',a.category||'',('"'+String(a.message||'').replace(/"/g,'""')+'"'),st].join(','));
+// PTA/ TAT 相对本层 L3/L4 的进度条（扩展项2）
+function renderExpProgress(P, m, L, param){
+  var box = document.getElementById(P+'Prog'); if(!box) return;
+  var tat = (m && m.tat_h!=null) ? m.tat_h : 0;
+  var pta = (m && m.pta!=null) ? m.pta : 0;
+  var l3 = (L && L.tat_l3_h) || 0, l4 = (L && L.tat_l4_h) || 0;
+  var t3 = l3>0 ? Math.min(100, tat/l3*100) : 0;
+  var t4 = l4>0 ? Math.min(100, tat/l4*100) : 0;
+  var col3 = tat>=l3 ? (tat>=l4?'var(--dan)':'var(--warn)') : 'var(--ok)';
+  box.innerHTML =
+    '<div class="pr-row"><span style="width:74px;">TAT / L3 '+l3+'h</span>'+
+      '<span class="pr-bar"><span class="pr-fill" style="width:'+t3.toFixed(1)+'%;background:'+col3+';"></span></span>'+
+      '<span style="width:38px;text-align:right;">'+t3.toFixed(0)+'%</span></div>'+
+    '<div class="pr-row"><span style="width:74px;">TAT / L4 '+l4+'h</span>'+
+      '<span class="pr-bar"><span class="pr-fill" style="width:'+t4.toFixed(1)+'%;background:'+(tat>=l4?'var(--dan)':'var(--pri)')+';"></span></span>'+
+      '<span style="width:38px;text-align:right;">'+t4.toFixed(0)+'%</span></div>';
+}
+
+// 分钟均值趋势小图（左图）+ 阈值线（真实时间轴 + 越限红阴影）
+function drawExpChart(P, series, thr, param, unit, level){
+  var svg = document.getElementById(P+'Chart'); if(!svg) return;
+  svg.innerHTML = '';
+  var W = svg.clientWidth || 420, H = 150;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  var L=34, R=8, Tp=10, B=20, pw=W-L-R, ph=H-Tp-B;
+  if(!series.length){
+    var t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',W/2); t.setAttribute('y',H/2); t.setAttribute('fill','#7C8694');
+    t.setAttribute('font-size','12'); t.setAttribute('text-anchor','middle'); t.textContent='暂无数据';
+    svg.appendChild(t); return;
+  }
+  var vs = series.map(function(p){return p.v;}).filter(function(v){return v!=null;});
+  var vmin = Math.min.apply(null, vs.concat(thr));
+  var vmax = Math.max.apply(null, vs.concat(thr));
+  var pad = (vmax-vmin)*0.15 || 2; vmin-=pad; vmax+=pad;
+  var t0 = series[0].ts, t1 = series[series.length-1].ts, tspan = (t1-t0)||1;
+  var X = function(ts){ return L + (ts-t0)/tspan*pw; };
+  var Y = function(v){ return Tp + (vmax-v)/ (vmax-vmin) * ph; };
+
+  // 越限区（≥阈值）红阴影
+  var shade = '';
+  var run = null;
+  series.forEach(function(p, i){
+    if(p.v!=null && p.v>=thr){ if(!run) run=[i,i]; else run[1]=i; }
+    else { if(run){ shade += polyForRun(series, run, X, Y, Tp, Tp+ph); run=null; } }
   });
-  L.push('');
-  L.push('免责声明,本系统提供暴露累积剂量与趋势统计，仅供临床诊疗决策参考，不作为调整通气参数的唯一依据');
-  downloadCsv(L.join('\n'), '交接班摘要_'+d.device+'_'+d.hours+'h.csv');
+  if(run) shade += polyForRun(series, run, X, Y, Tp, Tp+ph);
+  if(shade){
+    var polys = document.createElementNS('http://www.w3.org/2000/svg','g');
+    polys.innerHTML = shade;
+    svg.appendChild(polys);
+  }
+  // 阈值线
+  var tl = document.createElementNS('http://www.w3.org/2000/svg','line');
+  tl.setAttribute('x1',L); tl.setAttribute('x2',W-R);
+  tl.setAttribute('y1',Y(thr)); tl.setAttribute('y2',Y(thr));
+  tl.setAttribute('stroke','#EF4444'); tl.setAttribute('stroke-width','1');
+  tl.setAttribute('stroke-dasharray','4 3'); tl.setAttribute('opacity','.75');
+  svg.appendChild(tl);
+  var tlt = document.createElementNS('http://www.w3.org/2000/svg','text');
+  tlt.setAttribute('x',L+3); tlt.setAttribute('y',Y(thr)-3);
+  tlt.setAttribute('fill','#EF4444'); tlt.setAttribute('font-size','10'); tlt.textContent='阈 '+thr;
+  svg.appendChild(tlt);
+
+  // 曲线
+  var dstr = '';
+  series.forEach(function(p, i){
+    if(p.v==null) return;
+    dstr += (dstr==='' ? 'M' : 'L') + X(p.ts).toFixed(1) + ' ' + Y(p.v).toFixed(1) + ' ';
+  });
+  var path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d', dstr); path.setAttribute('fill','none');
+  path.setAttribute('stroke', (level>=2?'#F97316':(level>=1?'#EAB308':'#3B82F6')));
+  path.setAttribute('stroke-width','1.6'); path.setAttribute('stroke-linejoin','round');
+  svg.appendChild(path);
+
+  // 轴刻度（起止时刻）
+  var fmt = function(ts){ var dt=new Date(ts); var p2=function(n){return (n<10?'0':'')+n;};
+    return p2(dt.getHours())+':'+p2(dt.getMinutes()); };
+  [[t0,'start'],[t1,'end']].forEach(function(a, i){
+    var tx=document.createElementNS('http://www.w3.org/2000/svg','text');
+    tx.setAttribute('x', i===0?L:W-R); tx.setAttribute('y',H-6);
+    tx.setAttribute('fill','#7C8694'); tx.setAttribute('font-size','10');
+    tx.setAttribute('text-anchor', i===0?'start':'end');
+    tx.textContent = fmt(a[0]); svg.appendChild(tx);
+  });
+  // Y 轴上下限
+  [[vmax,Tp+4],[vmin,Tp+ph]].forEach(function(a){
+    var ty=document.createElementNS('http://www.w3.org/2000/svg','text');
+    ty.setAttribute('x',L-4); ty.setAttribute('y',a[1]);
+    ty.setAttribute('fill','#7C8694'); ty.setAttribute('font-size','9.5');
+    ty.setAttribute('text-anchor','end');
+    ty.textContent = (+a[0]).toFixed(param==='dp'?0:1); svg.appendChild(ty);
+  });
 }
+
+function polyForRun(series, run, X, Y, yTop, yBot){
+  var a = series[run[0]], b = series[run[1]];
+  var x1 = X(a.ts), x2 = X(b.ts);
+  if(x2-x1 < 1) x2 = x1 + 1;
+  return '<polygon points="'+x1.toFixed(1)+','+yBot+' '+x1.toFixed(1)+','+yTop+' '+
+         x2.toFixed(1)+','+yTop+' '+x2.toFixed(1)+','+yBot+'" fill="rgba(239,68,68,.13)"/>';
+}
+
+// 档位按钮绑定
+['dpExpWin','mpExpWin'].forEach(function(id){
+  var box = document.getElementById(id); if(!box) return;
+  var param = id.indexOf('dp')===0 ? 'dp' : 'mp';
+  box.addEventListener('click', function(e){
+    if(!e.target.dataset.w) return;
+    [].forEach.call(this.querySelectorAll('.btn'), function(b){ b.classList.remove('on'); });
+    e.target.classList.add('on');
+    expWin[param] = +e.target.dataset.w;
+    loadExposureCard(param);
+  });
+});
 
 // 导出当前趋势窗口的 1 分钟粒度 CSV（替换原 toast 占位）
 function exportTrendCsv(kind){
@@ -1717,42 +1608,7 @@ function redrawTrends(){
     drawTrend('dpChart','dpTip',curWin.dp,'dp','dpValid',TH.dp,8,22,'cmH₂O','#3B82F6',true);
     drawTrend('mpChart','mpTip',curWin.mp,'mp','mpValid',TH.mp,8,26,'J/min','#A855F7',false);
   }catch(e){ console.error('redrawTrends error:', e); }
-}
-
-// URS 07-3：顺应性分层标签卡（CRS 数值 + 分组 + 本层安全功率上限）
-// 阈值与 config.py 保持一致：高顺应性 MP≥18 / L3 2h / L4 6h；低顺应性 MP≥20 / L3 12h / L4 24h
-function renderComplianceCard(g){
-  var crsEl = document.getElementById('cmpCrs');
-  if(!crsEl) return;
-  var high = (g && g.stratum === 'high');
-  var crs  = (g && g.compliance_mean!=null) ? g.compliance_mean : null;
-  var card = document.getElementById('cmpCard');
-  var grp  = document.getElementById('cmpGroup');
-  var isUnknown = (crs==null || !(g && g.stratum));
-
-  crsEl.innerHTML = (crs!=null ? (+crs).toFixed(1) : '--') + ' <small>mL/cmH₂O</small>';
-
-  if(grp){
-    grp.textContent = isUnknown ? '数据不足' : (high ? '高顺应性肺 · 剂量敏感型' : '低顺应性肺 · 窄带耐受型');
-    grp.className = 'badge ' + (isUnknown ? '' : (high ? 'b-warn' : 'b-watch'));
-  }
-  document.getElementById('cmpMpLimit').innerHTML =
-    isUnknown ? '-- <small>J/min</small>' : ('&lt; ' + (high?18:20) + ' <small>J/min</small>');
-  document.getElementById('cmpTatLimit').innerHTML =
-    isUnknown ? '-- <small>h</small>' : ((high?'2 / 6':'12 / 24') + ' <small>h</small>');
-  if(card) card.style.borderLeftColor = isUnknown ? 'var(--t-3)' : (high ? 'var(--warn)' : 'var(--watch)');
-
-  var note = document.getElementById('cmpNote');
-  if(note){
-    note.innerHTML = isUnknown
-      ? '分层口径：C<sub>RS</sub> 按有效通气时长加权滚动；当前数据不足以分层（需有效通气分钟与 ΔP 有效值），接入连续数据后自动生效。'
-      : (high
-          ? '本层（C<sub>RS</sub> &gt; 32.7）为<b>剂量敏感型</b>：MP 安全上限 <b>&lt;18 J/min</b>，高暴露累计 ≥2h 触发 L3、≥6h 触发 L4。'
-          : '本层（C<sub>RS</sub> ≤ 32.7）为<b>窄带耐受型</b>：MP 安全上限 <b>&lt;20 J/min</b>，因低顺应性风险局限于窄带，累计窗口放宽至 ≥12h 触发 L3、≥24h 触发 L4。');
-  }
-}
-
-function setAnEmpty(txt){
+}function setAnEmpty(txt){
   var e = document.getElementById('anEmpty');
   if(e){ e.style.display='block'; e.textContent = txt||'--'; }
 }
@@ -1921,7 +1777,6 @@ function updateOverviewUI(d){
   var dpVal = (d.dp && d.dp.current!=null) ? d.dp.current : null;
   var mpVal = (d.mp && d.mp.current!=null) ? d.mp.current : null;
   updateRmReadout(dpVal, mpVal);
-  drawOverviewGauges();   // URS 07-1：瞬时数字卡 + 双环累积剂量计
   // Gauge badges（瞬时值已并入剂量计卡右侧，仅更新徽章；消息行已随旧卡移除）
   var dpBadge = document.getElementById('dpCardBadge');
   if(dpBadge){
