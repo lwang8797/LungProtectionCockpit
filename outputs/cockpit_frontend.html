@@ -370,17 +370,25 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         <div class="trend-layout">
           <div class="card chart-wrap">
             <h3>ΔP 分钟均值趋势（cmH₂O）</h3>
-            <svg id="dpChart" width="100%" height="316"></svg>
+            <svg id="dpChart" width="100%" height="240"></svg>
             <div class="tooltip" id="dpTip"></div>
+            <h3 style="margin-top:10px;">累积 ΔP 曲线（cmH₂O·h，窗口内累计）
+              <span class="hint">面积法：ΔP 分钟均值 × 时间积分；虚线为「仅计超阈部分」的高暴露累积</span></h3>
+            <svg id="dpEnergy" width="100%" height="120"></svg>
+            <div class="tooltip" id="deTip"></div>
           </div>
           <div>
             <div class="card" style="margin-bottom:12px;">
               <h3>超阈值时段（当前窗口）</h3>
               <div class="side-list" id="dpSegs"></div>
             </div>
-            <div class="card">
+            <div class="card" style="margin-bottom:12px;">
               <h3>变化点提示（CUSUM）</h3>
               <div id="dpCusum" style="font-size:12px;color:var(--t-2);line-height:1.7;"></div>
+            </div>
+            <div class="card" id="dpAdviceCard">
+              <h3>解读与决策建议</h3>
+              <div id="dpAdvice" style="font-size:12px;color:var(--t-2);line-height:1.75;"></div>
             </div>
           </div>
         </div>
@@ -1160,22 +1168,102 @@ function renderDp(win){
   drawTrend('dpChart','dpTip',win,'dp','dpValid',TH.dp,8,22,'cmH₂O','#3B82F6',true); statBoxes('dpStats',stats(data.slice(Math.max(0,N-win)),'dp','dpValid',TH.dp),'cmH₂O','cmH₂O·h'); segList('dpSegs',win,'dp','dpValid',TH.dp,'cmH₂O','#EF4444');
   var vis=changePts.filter(function(c){return c.i>N-win && c.i<N;});
   document.getElementById('dpCusum').innerHTML = vis.length? vis.map(function(c){return '· '+c.txt;}).join('<br>') : '<span style="color:var(--t-3)">当前窗口无变化点</span>';
+  // 累积 ΔP 曲线（窗口内累计，面积法；叠加「仅超阈部分」虚线）
+  drawAreaChart('dpEnergy','deTip',win,'cumDp','dpValid','cmH₂O·h','#3B82F6','cumDpOver');
+  renderDpAdvice(win);
 }
+
+// 累积 ΔP 解读与决策建议（肺保护：瞬时 + 累积双视角）
+function renderDpAdvice(win){
+  var el = document.getElementById('dpAdvice'); if(!el) return;
+  var arr = data.slice(Math.max(0, N-win)).filter(function(d){ return d.dpValid; });
+  if(!arr.length){ el.innerHTML = '<span style="color:var(--t-3)">当前窗口无有效 ΔP 数据</span>'; return; }
+  var last = data[N-1] || {};
+  var tatH = (last.cumDp != null && arr[0].cumDp != null) ? (last.cumDp - arr[0].cumDp) : null;
+  var overH = (last.cumDpOver != null && arr[0].cumDpOver != null) ? (last.cumDpOver - arr[0].cumDpOver) : null;
+  var peak = Math.max.apply(null, arr.map(function(d){ return d.dp; }));
+  var thr  = TH.dp;
+  var peakTxt = peak >= thr ? '<b style="color:var(--dan)">'+peak.toFixed(1)+'</b>' : peak.toFixed(1);
+  var L = [];
+  L.push('· 窗口内 ΔP 峰值 '+peakTxt+' cmH₂O（阈 '+thr+'）；累积暴露 '+
+         (tatH!=null?tatH.toFixed(2):'--')+' cmH₂O·h，其中超阈贡献 '+
+         (overH!=null?overH.toFixed(2):'--')+' cmH₂O·h。');
+  if(peak >= thr){
+    L.push('· <b style="color:var(--warn)">峰值已越限</b>：优先排查 <b>Pplat 是否偏高</b>（VT 过大 / 潮气量按 PBW 未达标）与 <b>PEEP 是否偏低</b>（可复性肺不张、腹腔高压、胸腔积液）。');
+    L.push('· 决策建议：①按 PBW 6–8 mL/kg 复核 VT；②在氧合/血流动力学允许下上调 PEEP 使 Pplat 下降；③若为自主呼吸触发过强，评估镇静/压力支持水平；④复查人机不同步与气道阻力（分泌物、管路扭曲）。');
+  } else if(peak >= thr - 3){
+    L.push('· <b style="color:var(--watch)">峰值接近阈值</b>：暂无需调参，建议缩短复查间隔并记录趋势方向，避免与 MP、PEEP 调整叠加成累积风险。');
+  } else {
+    L.push('· 峰值在安全区间：维持当前设置，重点关注 <b>累积暴露斜率</b>（曲线持续抬升即使单点安全也需关注）。');
+  }
+  L.push('· <span style="color:var(--t-3)">累积暴露比单次峰值更具预后价值；曲线斜率转陡即为「暴露加速」信号。仅供临床决策参考，不作为调整通气参数的唯一依据。</span>');
+  el.innerHTML = L.join('<br>');
+}
+
 function renderMp(win){
   if(N===0){ document.getElementById('mpStats').innerHTML=''; document.getElementById('mpSegs').innerHTML=''; return; }
   drawTrend('mpChart','mpTip',win,'mp','mpValid',TH.mp,8,26,'J/min','#A855F7',false); statBoxes('mpStats',stats(data.slice(Math.max(0,N-win)),'mp','mpValid',TH.mp),'J/min','J', N>0? data[N-1].cum:0); segList('mpSegs',win,'mp','mpValid',TH.mp,'J/min','#EF4444');
-  var svg=document.getElementById('mpEnergy'); if(!svg) return; svg.innerHTML='';
-  var W=svg.clientWidth||860,H=120,L=46,R=10,Tp=6,B=26,pw=W-L-R,ph=H-Tp-B;
+  drawAreaChart('mpEnergy','meTip',win,'cum','mpValid','kJ','#A855F7');
+}
+
+// 通用「累积面积」曲线：窗口内从 0 起算的累计值，浅色填充 + 折线 + 首尾刻度
+// extraKey 非空时叠加一条「仅超阈部分」的点状虚线
+function drawAreaChart(svgId, tipId, win, key, validKey, unit, color, extraKey){
+  var svg=document.getElementById(svgId); if(!svg) return; svg.innerHTML='';
+  var W=svg.clientWidth||860, H=+svg.getAttribute('height')||120;
+  var L=52,R=14,Tp=8,B=24,pw=W-L-R,ph=H-Tp-B;
   var arr=data.slice(Math.max(0,N-win));
   if(arr.length<2){ svg.appendChild(txt(W/2,H/2,'数据不足',{'font-size':12,fill:'#7C8694','text-anchor':'middle'})); return; }
-  var lo=arr[0].cum, hi=arr[arr.length-1].cum;
-  var pts=arr.map(function(d,idx){ return (L+idx/(arr.length-1)*pw).toFixed(1)+','+(Tp+ph-(d.cum-lo)/((hi-lo)||1)*ph).toFixed(1); });
-  var step=win===1440?180:win===360?60:10;
-  for(var i=0;i<arr.length;i+=step){ svg.appendChild(txt(L+i/(arr.length-1)*pw,H-8,arr[i].t,{'font-size':9.5,fill:'#7C8694','text-anchor':'middle'})); }
-  svg.appendChild(el('polygon',{points:L+','+(Tp+ph)+' '+pts.join(' ')+' '+(W-R)+','+(Tp+ph),fill:'#A855F7','opacity':.14}));
-  svg.appendChild(el('polyline',{points:pts.join(' '),fill:'none',stroke:'#A855F7','stroke-width':2}));
-  svg.appendChild(txt(L+2,Tp+11,'kJ',{'font-size':9.5,fill:'#7C8694'}));
-  svg.appendChild(txt(W-R,Tp+11,hi.toFixed(1)+' kJ',{'font-size':10,fill:'#A855F7','text-anchor':'end','font-weight':'bold'}));
+  if(arr[0][key]==null){ svg.appendChild(txt(W/2,H/2,'数据不足',{'font-size':12,fill:'#7C8694','text-anchor':'middle'})); return; }
+
+  // 以窗口起点为 0 起算增量，避免全程累计值把窗口内变化压平
+  var base = arr[0][key], baseX = (extraKey && arr[0][extraKey]!=null) ? arr[0][extraKey] : null;
+  var inc = arr.map(function(d){ return (d[key]!=null && d[validKey]!==false) ? (d[key]-base) : null; });
+  var vals = inc.filter(function(v){ return v!=null; });
+  if(!vals.length){ svg.appendChild(txt(W/2,H/2,'数据不足',{'font-size':12,fill:'#7C8694','text-anchor':'middle'})); return; }
+  var hiV = Math.max.apply(null, vals);
+  var loV = Math.min.apply(null, vals, 0);
+  var span = (hiV-loV)||1;
+  var X = function(idx){ return L + idx/(arr.length-1)*pw; };
+  var Y = function(v){ return Tp + ph - (v-loV)/span*ph; };
+
+  var pts='', area='';
+  arr.forEach(function(d, idx){
+    var v = inc[idx];
+    if(v==null) return;
+    var x=X(idx).toFixed(1), y=Y(v).toFixed(1);
+    pts += (pts===''?'':' ') + x+','+y;
+  });
+  if(pts){
+    var first = pts.split(' ')[0].split(',')[0], lastX = X(arr.length-1).toFixed(1);
+    area = 'M'+first+','+Y(loV).toFixed(1)+' L'+pts.split(' ').join(' L')+' L'+(W-R)+','+Y(loV).toFixed(1)+' Z';
+    svg.appendChild(el('path',{d:area, fill:color, opacity:.16, stroke:'none'}));
+    svg.appendChild(el('path',{d:'M'+pts.split(' ').join(' L'), fill:'none', stroke:color, 'stroke-width':2}));
+  }
+
+  // 超阈累积虚线（仅当有实测超阈贡献时）
+  if(extraKey){
+    var eArr=[], ok=false;
+    arr.forEach(function(d, idx){
+      if(d[extraKey]==null || baseX==null || d[validKey]===false) return;
+      var v = d[extraKey]-baseX; if(v>0.001) ok=true;
+      eArr.push({x:X(idx), y:Y(v)});
+    });
+    if(ok && eArr.length>1){
+      svg.appendChild(el('path',{d:'M'+eArr.map(function(p){return p.x.toFixed(1)+','+p.y.toFixed(1);}).join(' L'),
+        fill:'none', stroke:'#EF4444', 'stroke-width':1.5, 'stroke-dasharray':'5 3', opacity:.85}));
+    }
+  }
+
+  // 横轴首尾时刻
+  [[0,'start'],[arr.length-1,'end']].forEach(function(a){
+    svg.appendChild(txt(a[0]===0?L:W-R, H-6, arr[a[0]].t, {'font-size':9.5,fill:'#7C8694','text-anchor':a[1]}));
+  });
+  // 纵轴
+  svg.appendChild(txt(L-6, Tp+9, hiV.toFixed(1), {'font-size':9.5,fill:'#7C8694','text-anchor':'end'}));
+  svg.appendChild(txt(L-6, Tp+ph, loV.toFixed(1), {'font-size':9.5,fill:'#7C8694','text-anchor':'end'}));
+  svg.appendChild(txt(L-6, Tp+ph/2, unit, {'font-size':9.5,fill:'#7C8694','text-anchor':'end'}));
+  svg.appendChild(txt(W-R, Tp+11, hiV.toFixed(1)+' '+unit, {'font-size':10.5,fill:color,'text-anchor':'end','font-weight':'bold'}));
 }
 function renderAll(){
   drawRiskBand();
@@ -1308,7 +1396,9 @@ async function fetchTrends(){
     var mpSeries = mpRes.series || [];
     var len = Math.max(dpSeries.length, mpSeries.length);
     data = [];
-    var cumE = 0;
+    var cumE = 0;      // MP 累积机械能（J → kJ）
+    var cumDp = 0;     // ΔP 累积暴露（cmH₂O·min → cmH₂O·h）
+    var cumDpOver = 0; // ΔP 超阈累积（cmH₂O·min，仅计 ≥阈值部分）
     for(var i=0; i<len; i++){
       var dpVal = dpSeries[i] ? dpSeries[i].value : null;
       var mpVal = mpSeries[i] ? mpSeries[i].value : null;
@@ -1318,6 +1408,7 @@ async function fetchTrends(){
       var dpValid = dpVal !== null && dpVal !== undefined;
       var mpValid = mpVal !== null && mpVal !== undefined;
       if(mpValid) cumE += mpVal;
+      if(dpValid){ cumDp += dpVal; if(dpVal >= TH.dp) cumDpOver += (dpVal - TH.dp); }
       data.push({
         i: i, t: t, dt: dt,
         ts: dpSeries[i] ? dpSeries[i].ts : (mpSeries[i] ? mpSeries[i].ts : 0),
@@ -1326,7 +1417,9 @@ async function fetchTrends(){
         dpValid: dpValid, mpValid: mpValid,
         dpSt: dpValid ? 'VALID' : 'INVALID',
         mpSt: mpValid ? 'VALID' : 'MP_SUSPENDED',
-        cum: cumE / 1000
+        cum: cumE / 1000,          // MP 累积机械能 kJ
+        cumDp: cumDp / 60,         // ΔP 累积面积 cmH₂O·h
+        cumDpOver: cumDpOver / 60  // ΔP 超阈累积面积 cmH₂O·h
       });
     }
     N = data.length;
