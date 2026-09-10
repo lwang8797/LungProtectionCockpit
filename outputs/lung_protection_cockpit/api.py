@@ -919,6 +919,162 @@ async def get_analysis(
     return _clean_nan(data)
 
 
+# ── 累积暴露监测：按顺应性分层的结论文案（简略） ──
+_EXPOSURE_TEXT = {
+    # level: (风险提示, 建议)
+    0: ("暴露处于本层安全范围", "维持当前参数，常规监测"),
+    1: ("接近本层安全上限", "关注趋势，复核 VT / RR / PEEP"),
+    2: ("累积暴露已超本层 L3", "建议下调 VT 或 RR，评估 PEEP 与驱动压来源"),
+    3: ("累积暴露已达本层 L4", "尽快个体化调整，评估肺保护通气策略"),
+}
+
+
+def _exposure_stratum_and_limits(stratum: str, param: str) -> dict:
+    """按顺应性分层给出该参数的阈值与 L3/L4 参照（复用 config 既有口径）。"""
+    if param == "dp":
+        return {
+            "instant_thr": DP_THRESHOLD,
+            "tat_l3_h": CUM_DP_OVER_HOURS_L3,
+            "tat_l4_h": CUM_DP_OVER_HOURS_L4,
+            "auc_unit": "cmH₂O·h",
+            "value_unit": "cmH₂O",
+        }
+    # MP：阈值与 L3/L4 随分层变化
+    if stratum == "high":
+        return {
+            "instant_thr": MP_HIGH_STRATUM_THRESHOLD,
+            "tat_l3_h": CUM_MP_OVER_HOURS_L3_HIGH,
+            "tat_l4_h": CUM_MP_OVER_HOURS_L4_HIGH,
+            "auc_unit": "J·h/min",
+            "value_unit": "J/min",
+        }
+    return {
+        "instant_thr": MP_LOW_STRATUM_THRESHOLD,
+        "tat_l3_h": CUM_MP_OVER_HOURS_L3_LOW,
+        "tat_l4_h": CUM_MP_OVER_HOURS_L4_LOW,
+        "auc_unit": "J·h/min",
+        "value_unit": "J/min",
+    }
+
+
+def _compute_exposure_summary(device_id: str, param: str, hours: float) -> dict:
+    """总览「累积暴露监测」卡数据（URS 07-1/2 重构版）。
+
+    返回 4 段：
+      series   —— 窗口内分钟均值序列（左图用，含 over 标记与真实时间戳）
+      metrics  —— TAT / AUC / PTA / peak / mean（累积暴露指标）
+      limits   —— 本层阈值与 L3/L4 参照（供前端进度条）
+      conclusion—— 分层风险结论（风险提示 / 建议 / 依据，简略）
+
+    结论判级 = max(累积维度(TAT 对 L3/L4), 瞬时维度(峰值对阈值))，与 G0-G3 同源。
+    """
+    db = get_database()
+    latest_ts = get_latest_minute_ts(db, device_id)
+    if latest_ts == 0:
+        _, latest_ts = get_time_range(db, device_id)
+    if latest_ts == 0:
+        return {"error": "no_data", "device": device_id}
+
+    start_ts = latest_ts - int(hours * 3600 * 1000)
+    docs = list(db[COLL_1MIN].find(
+        {"deviceId": device_id, "minute": {"$gte": start_ts, "$lte": latest_ts},
+         "dp_mean": {"$ne": None}, "mp_mean": {"$ne": None}},
+        {"_id": 0, "minute": 1, "dp_mean": 1, "mp_mean": 1, "vt_mean": 1},
+    ).sort("minute", 1))
+
+    win = _window_cumulative(db, device_id, start_ts, latest_ts, hours)
+    if not win:
+        return {"error": "no_data", "device": device_id}
+
+    stratum = win.get("compliance_stratum") or "low"
+    limits = _exposure_stratum_and_limits(stratum, param)
+
+    # ── 指标 ──
+    if param == "dp":
+        tat_h = win.get("dp_tat_hours") or 0.0
+        auc = win.get("dp_auc_h") or 0.0
+        pta = win.get("dp_pta") or 0.0
+        vals = [d["dp_mean"] for d in docs if d.get("dp_mean") is not None]
+    else:
+        mp_key = "mp18" if stratum == "high" else "mp20"
+        tat_h = (win.get("mp_tat_hours") or {}).get(mp_key, 0.0)
+        auc = (win.get("mp_auc_h") or {}).get(mp_key, 0.0)
+        pta = win.get("mp_pta") or 0.0
+        vals = [d["mp_mean"] for d in docs if d.get("mp_mean") is not None]
+
+    peak = round(max(vals), 2) if vals else None
+    mean = round(sum(vals) / len(vals), 2) if vals else None
+
+    # ── 序列（供左图：分钟均值 + over 标记） ──
+    thr = limits["instant_thr"]
+    series_out = [{"ts": d["minute"],
+                   "v": round(d["dp_mean"] if param == "dp" else d["mp_mean"], 2),
+                   "over": (d["dp_mean"] if param == "dp" else d["mp_mean"]) >= thr}
+                  for d in docs]
+
+    # ── 结论判级：累积维度（TAT 对 L3/L4）与瞬时维度（峰值对阈值）取最高 ──
+    l3, l4 = limits["tat_l3_h"], limits["tat_l4_h"]
+    if tat_h >= l4:
+        level = 3
+    elif tat_h >= l3:
+        level = 2
+    elif tat_h > 0 or (peak is not None and peak >= thr):
+        level = 1
+    else:
+        level = 0
+
+    hint, advice = _EXPOSURE_TEXT[level]
+    # 依据（简略、只列关键量）
+    basis_bits = [f"TAT {tat_h:.1f}h/本层L3 {l3:g}h"]
+    if peak is not None:
+        basis_bits.append(f"峰值 {peak:g}≥阈{thr:g}" if peak >= thr else f"峰值 {peak:g}")
+    basis_bits.append(f"PTA {pta:.0f}%")
+    basis = "；".join(basis_bits)
+
+    return {
+        "device": device_id,
+        "param": param,
+        "hours": hours,
+        "stratum": stratum,
+        "compliance_mean": win.get("compliance_mean"),
+        "metrics": {
+            "tat_h": round(tat_h, 2),
+            "auc": round(auc, 2),
+            "pta": round(pta, 1),
+            "peak": peak,
+            "mean": mean,
+        },
+        "limits": limits,
+        "conclusion": {
+            "level": level,
+            "label": ["L1 正常", "L2 关注", "L3 偏高", "L4 危险"][level],
+            "hint": hint,
+            "advice": advice,
+            "basis": basis,
+        },
+        "series": series_out,
+        "dcr": win.get("dcr"),
+    }
+
+
+@app.get("/api/exposure-summary")
+async def get_exposure_summary(
+    deviceId: str = Query(default=DEVICE_ID),
+    param: str = Query(default="dp", pattern="^(dp|mp)$"),
+    hours: float = Query(default=6, ge=0.1, le=168),
+):
+    """总览累积暴露监测卡：分层阈值 + 累积指标 + 风险结论（后端按顺应性分层判定）。"""
+    try:
+        data = await asyncio.get_event_loop().run_in_executor(
+            None, _compute_exposure_summary, deviceId, param, hours)
+    except Exception as e:
+        logger.exception("exposure-summary failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if data.get("error") == "no_data":
+        raise HTTPException(status_code=404, detail="该时间窗口无数据")
+    return _clean_nan(data)
+
+
 def _compute_shift_summary(device_id: str, hours: float) -> dict:
     """URS 07-4 交接班摘要：汇总本班次（8/12/24h）力学暴露与干预记录。
 
