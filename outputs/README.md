@@ -16,9 +16,13 @@ outputs/
 │   ├── api.py                     # REST 端点 + WebSocket 推送
 │   └── main.py                    # 启动入口（serve / backfill / aggregate / all）
 ├── scripts/                       # 脚本与测试
-│   ├── test_alert_ack.py          # 预警确认持久化回归测试（Python，后端 E2E）
-│   ├── test_alert_ack_frontend.js # 预警确认回归测试（Node，前端逻辑 E2E）
-│   └── reset_alert_acks.py        # 测试复位工具
+│   ├── test_exposure_api.py        # 累积暴露接口 E2E（6 档位 + 分层阈值口径 + NaN 清洗 + 老接口回归）
+│   ├── test_block_d.js             # ΔP 累积曲线绘图逻辑测试（Node + DOM 桩，真实 API 数据）
+│   ├── test_analyzer.py            # 分析引擎回归（斜率/CUSUM/防抖 19 项断言）
+│   ├── test_alert_ack.py           # 预警确认持久化回归测试（Python，后端 E2E）
+│   ├── test_alert_ack_frontend.js  # 预警确认回归测试（Node，前端逻辑 E2E）
+│   ├── check_frontend_syntax.js    # 前端内联 script 语法校验
+│   └── reset_alert_acks.py         # 测试复位工具
 ├── docs/                          # 需求 / 设计 / 实施方案文档
 ├── .venv/                         # Python 虚拟环境（3.12）
 └── 启动后端.bat                   # 一键启动（端口 8090）
@@ -53,7 +57,8 @@ set COCKPIT_PORT=8090
 | POST | `/api/alerts/ack-all` | **批量确认全部活动中预警** |
 | GET | `/api/metrics/1min` | 1 分钟聚合明细 |
 | GET | `/api/analysis` | URS FR-05 斜率 + CUSUM + FR-06 G0-G3 防抖总评 |
-| GET | `/api/shift-summary` | URS 07-4 交接班摘要（8/12/24h，服务端口径） |
+| GET | `/api/exposure-summary` | **累积暴露监测汇总（`param=dp\|mp`，1/6/24h）：按顺应性分层取阈值 + TAT/AUC/PTA + 分层风险结论（提示/建议/依据）** |
+| GET | `/api/shift-summary` | URS 07-4 交接班摘要（8/12/24h，服务端口径；**前端已不再展示，接口保留**） |
 | WS | `/ws` | 实时推送总览（2s 间隔） |
 
 ## 预警生命周期
@@ -77,6 +82,12 @@ set COCKPIT_PORT=8090
 ```bash
 cd outputs
 
+# 累积暴露接口 E2E（自起临时服务，验证 6 档位 + 分层阈值口径 + NaN 清洗 + 老接口回归）
+.venv\Scripts\python.exe scripts/test_exposure_api.py
+
+# 分析引擎回归（19 项断言）
+.venv\Scripts\python.exe scripts/test_analyzer.py
+
 # 后端 E2E：起临时服务，验证 ACK 后重新拉取仍为已确认（测试完自动还原数据）
 .venv\Scripts\python.exe scripts/test_alert_ack.py
 
@@ -85,6 +96,12 @@ cd outputs
 
 # 前端 E2E：抽取 HTML 中真实 alert 函数，在 DOM 桩上跑「确认 -> 刷新 -> 重新拉取」
 node scripts/test_alert_ack_frontend.js --spawn
+
+# 前端内联 JS 语法校验
+node scripts/check_frontend_syntax.js cockpit_frontend.html
+
+# ΔP 累积曲线绘图逻辑（需后端在 8091 运行：uvicorn ... --port 8091）
+node scripts/test_block_d.js http://127.0.0.1:8091
 ```
 
 ## 已知约束
@@ -115,10 +132,50 @@ node scripts/test_alert_ack_frontend.js --spawn
 
 | URS 07 | 交付 | 说明 |
 | :--- | :--- | :--- |
-| 1 累积剂量计双环表 | ✅ `drawDosimeter` | 外环 ΔP / 内环 MP，绿黄橙红四色；满环=本层 L4（ΔP 6h；MP 高顺应 6h / 低顺应 24h）；中央显示 TAT(h) + AUC。原 `dpGauge`/`mpGauge` 半圆表已移除，瞬时值改紧凑数字卡 |
-| 2 时变双轴折线热图 | ✅ `drawTrend` 改造 | 横轴改**真实时钟**（按 `ts` 线性映射，断流自然留白）；阈值红阴影（面积=AUC）；**CUSUM 基线漂移标记旗**消费 `/api/analysis` 的 `cusum.*.change_points`（`side`=up/down），后端不可用时回退本地启发式 |
-| 3 顺应性分层标签卡 | ✅ `renderComplianceCard` | 显示 CRS 数值、分组（高顺应性肺·剂量敏感型 / 低顺应性肺·窄带耐受型）、本层 MP 安全上限（18 / 20 J/min）与该层 L3/L4 阈值 |
-| 4 交接班摘要与导出 | ✅ `/api/shift-summary` | 后端新增（8/12/24h）：最高暴露、超标总时长、AUC 增量、斜率方向、预警记录；前端卡片 + 导出 CSV（含 BOM 防中文乱码）；两个占位「导出 CSV」按钮接真实实现 |
+| 2 时变双轴折线热图 | ✅ `drawTrend` | 横轴改**真实时钟**（按 `ts` 线性映射，断流自然留白）；阈值红阴影（面积=AUC）；**CUSUM 基线漂移标记旗**消费 `/api/analysis` 的 `cusum.*.change_points`（`side`=up/down），后端不可用时回退本地启发式 |
+
+> URS 07-1（双环剂量计）、07-3（顺应性分层卡）、07-4（交接班摘要）的**前端展示已于
+> 本轮回炉重构中移除**（见下节），后端 `/api/shift-summary` 接口保留。
+
+## 界面回炉重构（2026-09-10，commit 2a63f6a / 215e7d3）
+
+用户新需求：**16:9 等比缩放单屏、不可滚动**；总览改为双行「累积暴露监测」卡；
+风险结论一律**按顺应性分层**判定（后端实现，前端不做分层展示区）；ΔP 页增加累积 ΔP 曲线。
+
+**影响范围：总览页 + ΔP 页；风险图 / 预警 / 设置页未改动。**
+
+### 总览页结构（自上而下）
+
+| 区块 | 内容 |
+| :--- | :--- |
+| 风险评级带 | 等级徽章 + 标题 + 副标题 + 越限/复评/安全计数 |
+| **ΔP 累积暴露监测** | 左：分钟均值趋势图（1h/6h/24h 档，默认 6h，真实时间轴 + 阈值线 + 越限红阴影）<br>右：TAT / AUC / PTA 三指标 + TAT 相对本层 L3/L4 进度条 + **风险结论（提示 / 建议 / 依据）** |
+| **MP 累积暴露监测** | 同上结构（MP 安全上限随分层变化） |
+| 24h 风险分级时间带 | 保留 |
+| 通气参数快照 | 保留（模式/VT、RR/PEEP、PIP/Pplat、FiO₂） |
+
+**已移除**：双环累积剂量计、交接班摘要卡、24h 滚动窗口块、顺应性分层标签卡、
+URS 趋势分析卡的变化点与分级防抖行（结论已并入暴露卡的「风险结论」）。
+
+### 顺应性分层口径（后端 `/api/exposure-summary`）
+
+分层阈值由 `compliance_stratum`（`CRS > 32.7` → `high`，否则 `low`）决定：
+
+| 维度 | 瞬时阈值 | L3（累积偏高） | L4（高风险） |
+| :--- | :--- | :--- | :--- |
+| ΔP（两分层相同） | 15 cmH₂O | 2 h | 6 h |
+| MP · 高顺应性 | 18 J/min | 2 h | 6 h |
+| MP · 低顺应性 | 20 J/min | 12 h | 24 h |
+
+结论等级：`TAT ≥ L4` → 3；`TAT ≥ L3` → 2；`TAT > 0` 或 `峰值 ≥ 阈值` → 1；否则 0。
+响应同时给出 `series`（分钟均值，含 `over` 标记）、`dcr`、`compliance_mean`。
+
+### ΔP 页新增
+
+- **累积 ΔP 曲线**（`cmH₂O·h`，窗口内面积法累计）+ 红虚线「仅超阈部分贡献」；
+  与 MP 页累积机械能曲线共用 `drawAreaChart()`（从窗口起点归零，避免全程累计值压平窗口内变化）。
+- **「解读与决策建议」卡**：窗口内峰值 / 累积暴露 / 超阈贡献，按越限程度分档给出
+  VT（PBW 6–8 mL/kg）、PEEP 调整、镇静与压力支持评估、气道阻力排查等肺保护决策建议。
 
 **未实施 / 待定**：FR-05 GBTM 轨迹归属（通气第 4 天回溯）、俯卧位标记、交接单 HTML/PDF 版式。
 
@@ -152,10 +209,10 @@ node scripts/test_alert_ack_frontend.js --spawn
 
 ## 模拟数据演示（真实数据稀疏时预览 URS 效果）
 
-真实设备数据稀疏（几十分钟一批），双环剂量计、累积暴露、24h 滚动窗口、滑动斜率/CUSUM
-变化点、G0-G3 分级防抖、顺应性分层这些效果在稀疏数据下几乎看不出。用**模拟生成的连续分钟
-数据**（结构与 `measure_param` 完全一致，写入独立模拟设备 `SIM900000001`，不污染真实数据）
-即可全链路预览。
+真实设备数据稀疏（几十分钟一批），累积暴露卡的 TAT/AUC/PTA、趋势曲线、24h 风险带、
+滑动斜率/CUSUM 变化点、G0-G3 分级防抖、顺应性分层切换这些效果在稀疏数据下几乎看不出。
+用**模拟生成的连续分钟数据**（结构与 `measure_param` 完全一致，写入独立模拟设备
+`SIM900000001`，不污染真实数据）即可全链路预览。
 
 **一键演示（推荐）**：双击 `outputs\模拟数据演示.bat`（自动清理旧模拟 → 播种最近 24h
 `surge` 越限场景 → 用模拟设备启动后端端口 8090），浏览器打开 `http://localhost:8090/`。
@@ -180,6 +237,7 @@ REM 清理模拟数据
 .venv\Scripts\python.exe scripts\seed_sim_device.py --clean --device SIM900000001
 ```
 
-> 各场景能看到的重点：`surge` → 双环剂量计快速填充 + 等级升到 G2/G3；`step` →
-> ΔP 越过 15 后触发越限预警 + 分级确认；`ramp` → 趋势斜率上行 + CUSUM 漂移旗；
-> `lowcomp` → 顺应性分层切到「低顺应性·窄带耐受」，MP 安全上限降为 20。
+> 各场景能看到的重点：`surge` → 累积暴露卡 TAT 进度条快速填充、结论等级升到 L3/L4，
+> ΔP 累积曲线斜率明显转陡；`step` → ΔP 越过 15 后触发越限预警 + 分级确认；
+> `ramp` → 趋势斜率上行 + CUSUM 漂移旗；`lowcomp` → 顺应性分层切到「低顺应性·窄带耐受」，
+> MP 瞬时阈值 18→20、L3/L4 2/6h→12/24h，累积暴露卡结论随之切换。

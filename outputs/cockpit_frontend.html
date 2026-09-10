@@ -63,38 +63,38 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Mi
 .card h3{font-size:13px;color:var(--t-2);font-weight:bold;display:flex;align-items:center;gap:6px;margin-bottom:9px;}
 .card h3 .hint{font-weight:normal;font-size:11px;color:var(--t-3);}
 
-/* 总览「累积暴露监测」卡（16:9 单屏，两行布局） */
-.exp-card{padding:9px 12px;}
-.exp-card h3{margin-bottom:6px;}
-.exp-card .badge{font-size:10.5px;padding:2px 9px;}
-.exp-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;}
+/* 总览「累积暴露监测」卡（16:9 单屏，两行布局；尺寸按 768px 高度预算收紧） */
+.exp-card{padding:7px 11px;}
+.exp-card h3{margin-bottom:5px;font-size:12.5px;}
+.exp-card .badge{font-size:10px;padding:1px 8px;}
+.exp-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:11px;align-items:stretch;}
 .exp-left{min-width:0;display:flex;flex-direction:column;}
 .exp-left .seg{align-self:flex-start;}
-.exp-left .seg .btn{padding:4px 12px;min-height:26px;font-size:11.5px;}
-.exp-right{min-width:0;display:flex;flex-direction:column;gap:7px;}
-.exp-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
-.exp-metrics .pcell{padding:6px 9px;}
-.exp-metrics .pcell .k{font-size:10.5px;}
-.exp-metrics .pcell .v{font-size:16px;}
-.exp-metrics .pcell .v small{font-size:9.5px;}
-.exp-progress{display:flex;flex-direction:column;gap:4px;}
-.exp-progress .pr-row{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--t-3);}
-.exp-progress .pr-bar{flex:1;height:7px;border-radius:4px;background:var(--bg-4);overflow:hidden;position:relative;}
+.exp-left .seg .btn{padding:3px 11px;min-height:23px;font-size:11px;}
+.exp-right{min-width:0;display:flex;flex-direction:column;gap:6px;}
+.exp-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.exp-metrics .pcell{padding:5px 8px;}
+.exp-metrics .pcell .k{font-size:10px;}
+.exp-metrics .pcell .v{font-size:15px;}
+.exp-metrics .pcell .v small{font-size:9px;}
+.exp-progress{display:flex;flex-direction:column;gap:3px;}
+.exp-progress .pr-row{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--t-3);}
+.exp-progress .pr-bar{flex:1;height:6px;border-radius:4px;background:var(--bg-4);overflow:hidden;position:relative;}
 .exp-progress .pr-fill{height:100%;border-radius:4px;transition:width .3s;}
-.exp-progress .pr-mark{position:absolute;top:-2px;width:1px;height:11px;background:rgba(255,255,255,.45);}
-.exp-concl{background:var(--bg-1);border:1px solid var(--line);border-left:3px solid var(--t-4);border-radius:6px;padding:7px 10px;display:flex;flex-direction:column;gap:3px;}
-.exp-concl .ec-hint{font-size:11.5px;font-weight:bold;color:var(--t-1);}
-.exp-concl .ec-advice{font-size:11px;color:var(--t-2);line-height:1.5;}
-.exp-concl .ec-basis{font-size:10px;color:var(--t-3);line-height:1.45;}
+.exp-progress .pr-mark{position:absolute;top:-2px;width:1px;height:10px;background:rgba(255,255,255,.45);}
+.exp-concl{background:var(--bg-1);border:1px solid var(--line);border-left:3px solid var(--t-4);border-radius:6px;padding:6px 9px;display:flex;flex-direction:column;gap:2px;}
+.exp-concl .ec-hint{font-size:11px;font-weight:bold;color:var(--t-1);}
+.exp-concl .ec-advice{font-size:10.5px;color:var(--t-2);line-height:1.4;}
+.exp-concl .ec-basis{font-size:9.5px;color:var(--t-3);line-height:1.35;}
 
-/* 整体评级横幅 */
-.rating-band{position:relative;border-radius:8px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:18px;overflow:hidden;}
-.rating-band .lv{font-size:34px;font-weight:900;letter-spacing:2px;line-height:1;padding:0 18px;border-right:1px solid rgba(255,255,255,.25);}
-.rating-band .ttl{font-size:20px;font-weight:bold;line-height:1.3;}
-.rating-band .sub{font-size:13px;opacity:.9;margin-top:6px;line-height:1.55;}
-.rating-band .pills{margin-left:auto;display:flex;gap:8px;}
-.rating-band .pills span{background:rgba(255,255,255,.18);border-radius:14px;padding:5px 12px;font-size:12px;font-weight:bold;}
-.rating-band .icon{width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;flex-shrink:0;}
+/* 整体评级横幅（16:9 单屏，高度收紧） */
+.rating-band{position:relative;border-radius:8px;padding:9px 16px;margin-bottom:9px;display:flex;align-items:center;gap:15px;overflow:hidden;}
+.rating-band .lv{font-size:26px;font-weight:900;letter-spacing:2px;line-height:1;padding:0 14px;border-right:1px solid rgba(255,255,255,.25);}
+.rating-band .ttl{font-size:16px;font-weight:bold;line-height:1.25;}
+.rating-band .sub{font-size:11.5px;opacity:.9;margin-top:3px;line-height:1.4;}
+.rating-band .pills{margin-left:auto;display:flex;gap:7px;}
+.rating-band .pills span{background:rgba(255,255,255,.18);border-radius:14px;padding:4px 11px;font-size:11.5px;font-weight:bold;}
+.rating-band .icon{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;flex-shrink:0;}
 .rating-band.lv-0{background:linear-gradient(90deg,#16A34A,#15803D);color:#fff;}
 .rating-band.lv-1{background:linear-gradient(90deg,#CA8A04,#A16207);color:#fff;}
 .rating-band.lv-2{background:linear-gradient(90deg,#EA580C,#C2410C);color:#fff;}
@@ -271,7 +271,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         </div>
 
         <!-- 行1：ΔP 累积暴露监测 -->
-        <div class="card exp-card" id="dpExpCard" style="margin-bottom:10px;">
+        <div class="card exp-card" id="dpExpCard" style="margin-bottom:9px;">
           <h3>ΔP 累积暴露监测
             <span style="font-weight:normal;font-size:11px;color:var(--t-3);">气道驱动压 Pplat − PEEP</span>
             <span class="badge" id="dpExpBadge" style="margin-left:8px;">--</span>
@@ -283,7 +283,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
               <div class="seg" id="dpExpWin" style="margin-bottom:6px;">
                 <button class="btn" data-w="1">1小时</button><button class="btn on" data-w="6">6小时</button><button class="btn" data-w="24">24小时</button>
               </div>
-              <svg id="dpExpChart" width="100%" height="150"></svg>
+              <svg id="dpExpChart" width="100%" height="118"></svg>
             </div>
             <div class="exp-right">
               <div class="exp-metrics">
@@ -302,7 +302,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         </div>
 
         <!-- 行2：MP 累积暴露监测 -->
-        <div class="card exp-card" id="mpExpCard" style="margin-bottom:10px;">
+        <div class="card exp-card" id="mpExpCard" style="margin-bottom:9px;">
           <h3>MP 累积暴露监测
             <span style="font-weight:normal;font-size:11px;color:var(--t-3);">气道机械功率 Gattinoni 公式</span>
             <span class="badge" id="mpExpBadge" style="margin-left:8px;">--</span>
@@ -314,7 +314,7 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
               <div class="seg" id="mpExpWin" style="margin-bottom:6px;">
                 <button class="btn" data-w="1">1小时</button><button class="btn on" data-w="6">6小时</button><button class="btn" data-w="24">24小时</button>
               </div>
-              <svg id="mpExpChart" width="100%" height="150"></svg>
+              <svg id="mpExpChart" width="100%" height="118"></svg>
             </div>
             <div class="exp-right">
               <div class="exp-metrics">
@@ -333,19 +333,19 @@ input[type=range]{flex:1;height:36px;accent-color:var(--pri);background:transpar
         </div>
 
         <!-- 保留：24h 风险分级时间带 -->
-        <div class="card band-card" style="padding:8px 12px;">
+        <div class="card band-card" style="padding:6px 11px;">
           <h3 style="margin-bottom:5px;">24h 风险分级时间带
             <span class="legend">
               <span><i style="background:var(--ok)"></i>低风险</span><span><i style="background:var(--watch)"></i>关注</span><span><i style="background:var(--warn)"></i>累积偏高</span><span><i style="background:var(--dan)"></i>高风险</span><span><i style="background:var(--t-4)"></i>无数据</span>
             </span>
             <span class="hint" style="margin-left:auto;">评级 = 实时单值 + 累积暴露 双维度合并；下方色带为逐分钟单值历史</span>
           </h3>
-          <svg id="riskBand" width="100%" height="44"></svg>
+          <svg id="riskBand" width="100%" height="34"></svg>
         </div>
 
         <!-- 保留：通气参数快照 -->
-        <div class="card" style="padding:8px 12px;margin-top:10px;">
-          <h3 style="margin-bottom:6px;">通气参数快照
+        <div class="card" style="padding:6px 11px;margin-top:9px;">
+          <h3 style="margin-bottom:5px;font-size:12.5px;">通气参数快照
             <span class="hintlink" style="margin-left:auto;" onclick="gotoPage('st')">适用范围与局限 ›</span></h3>
           <div class="param-grid" style="grid-template-columns:repeat(4,1fr);gap:8px;">
             <div class="pcell"><div class="k">模式 / VT</div><div class="v"><span id="snapMode">--</span> <small id="snapVt">-- mL</small></div></div>
@@ -1564,7 +1564,7 @@ function renderExpProgress(P, m, L, param){
 function drawExpChart(P, series, thr, param, unit, level){
   var svg = document.getElementById(P+'Chart'); if(!svg) return;
   svg.innerHTML = '';
-  var W = svg.clientWidth || 420, H = 150;
+  var W = svg.clientWidth || 420, H = +svg.getAttribute('height') || 118;
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   var L=34, R=8, Tp=10, B=20, pw=W-L-R, ph=H-Tp-B;
   if(!series.length){
